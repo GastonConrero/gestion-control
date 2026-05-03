@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api import auth, clientes
+from app.api import auth, clientes, setup
 from app.models import user, cliente  # noqa: F401 — importar para crear tablas
 
 # Crear tablas
@@ -23,6 +23,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(clientes.router)
+app.include_router(setup.router)
 
 @app.get("/")
 def root():
