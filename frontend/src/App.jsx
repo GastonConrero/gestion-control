@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import Layout from './components/Layout'
 import Inicio from './pages/Inicio'
+import Clientes from './pages/Clientes'
 
 function RutaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -17,7 +18,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<RutaProtegida><Layout /></RutaProtegida>}>
             <Route index element={<Inicio />} />
-            <Route path="clientes" element={<div style={{padding:20}}><h3>Clientes</h3></div>} />
+            <Route path="clientes" element={<Clientes />} />
             <Route path="proyectos" element={<div style={{padding:20}}><h3>Proyectos</h3></div>} />
             <Route path="presupuestos" element={<div style={{padding:20}}><h3>Presupuestos</h3></div>} />
             <Route path="recibos" element={<div style={{padding:20}}><h3>Recibos</h3></div>} />
