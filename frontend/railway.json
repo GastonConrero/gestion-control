@@ -4,7 +4,7 @@
     "buildCommand": "npm install && npm run build && npm install -g serve"
   },
   "deploy": {
-    "startCommand": "serve -s dist -p $PORT",
+    "startCommand": "serve -s dist -p 8080",
     "restartPolicyType": "ON_FAILURE"
   }
 }
