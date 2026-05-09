@@ -2,4 +2,4 @@
 cmds = ["npm run build"]
 
 [start]
-cmd = "npx serve dist -s -l 4173"
+cmd = "npx serve dist -s -l $PORT"
