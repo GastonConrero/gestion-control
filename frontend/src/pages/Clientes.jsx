@@ -23,7 +23,7 @@ const TABS = [
 ]
 
 export default function Clientes() {
-  const { user } = useAuth()
+  const { usuario: user } = useAuth()
   const [clientes, setClientes]           = useState([])
   const [busqueda, setBusqueda]           = useState('')
   const [loading, setLoading]             = useState(true)
