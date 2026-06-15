@@ -16,7 +16,7 @@ from app.schemas.presupuesto import PresupuestoCreate, PresupuestoUpdate, Presup
 
 router = APIRouter(prefix="/api/presupuestos", tags=["presupuestos"])
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logo_nodo.png')
+LOGO_PATH = '/app/backend/logo_nodo.png'
 
 
 def _solo_gaston(user: User):
