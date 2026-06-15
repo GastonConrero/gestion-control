@@ -1,9 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api import auth, clientes, setup, proyectos, presupuestos
+from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos
 from app.models import user, cliente, proyecto, presupuesto  # noqa: F401
-
 from app.models.cliente import Cliente
 from app.models.proyecto import Proyecto
 from app.models.presupuesto import Presupuesto
