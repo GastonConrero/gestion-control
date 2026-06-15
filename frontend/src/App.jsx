@@ -4,7 +4,7 @@ import Login from './pages/Login'
 import Layout from './components/Layout'
 import Inicio from './pages/Inicio'
 import Clientes from './pages/Clientes'
-import Presupuestos from './pages/Presupuestos'
+import Presupuestos from './pages/presupuestos'
 
 function RutaProtegida({ children }) {
   const { usuario } = useAuth()
