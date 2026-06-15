@@ -11,7 +11,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.presupuesto import Presupuesto, EstadoPresupuesto
 from app.models.cliente import Cliente
-from app.schemas.presupuestos import PresupuestoCreate, PresupuestoUpdate, PresupuestoOut
+from app.schemas.presupuesto import PresupuestoCreate, PresupuestoUpdate, PresupuestoOut
 
 router = APIRouter(prefix="/api/presupuestos", tags=["presupuestos"])
 
@@ -212,12 +212,10 @@ def generar_pdf(
 
         story = []
 
-        # Franja naranja
         story.append(Table([['']], colWidths=[170*mm], rowHeights=[3*mm],
             style=TableStyle([('BACKGROUND', (0,0), (-1,-1), NARANJA)])))
         story.append(Spacer(1, 4*mm))
 
-        # Encabezado
         enc = Table([
             [Paragraph('<b>NODO</b> Ingeniería y Arquitectura',
                 estilo('enc', fontSize=13, textColor=NARANJA, fontName='Helvetica-Bold')),
@@ -229,13 +227,11 @@ def generar_pdf(
         story.append(Paragraph('Salta 246, Pozo del Molle, Córdoba · nodo.estudioarq.ing@gmail.com · @nodo.ing.arq', s_small))
         story.append(Spacer(1, 4*mm))
 
-        # Banda PRESUPUESTO
         story.append(Table([[Paragraph('PRESUPUESTO', s_naranja)]],
             colWidths=[170*mm], rowHeights=[8*mm],
             style=TableStyle([('BACKGROUND', (0,0), (-1,-1), NARANJA), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')])))
         story.append(Spacer(1, 4*mm))
 
-        # Datos generales
         filas = [
             [Paragraph('<b>CLIENTE</b>', s_small),  Paragraph(cliente_nombre, s_normal)],
             [Paragraph('<b>SERVICIO</b>', s_small),  Paragraph(p.tipo, s_normal)],
@@ -258,7 +254,6 @@ def generar_pdf(
         story.append(t)
         story.append(Spacer(1, 6*mm))
 
-        # Honorario
         story.append(HRFlowable(width='100%', thickness=1.5, color=NARANJA))
         story.append(Spacer(1, 2*mm))
         story.append(Paragraph('HONORARIO PROFESIONAL',
@@ -290,7 +285,6 @@ def generar_pdf(
             story.append(Paragraph(f'<b>No incluye:</b> {p.no_incluye}', s_normal))
             story.append(Spacer(1, 2*mm))
 
-        # Notas
         story.append(HRFlowable(width='100%', thickness=1.5, color=NARANJA))
         story.append(Spacer(1, 2*mm))
         story.append(Paragraph('NOTAS',
@@ -306,7 +300,6 @@ def generar_pdf(
             story.append(Paragraph(f'• {p.notas}', s_small))
         story.append(Spacer(1, 8*mm))
 
-        # Firmas
         prof1 = p.profesional_1 or 'Ing. Gastón Conrero'
         col2  = Paragraph(p.profesional_2,
             estilo('f2', fontSize=9, fontName='Helvetica-Bold', alignment=TA_CENTER)) if p.profesional_2 else Paragraph('', s_normal)
@@ -320,7 +313,6 @@ def generar_pdf(
         story.append(firmas)
         story.append(Spacer(1, 6*mm))
 
-        # Pie tricolor
         pie = Table(
             [['NODO Ingeniería y Arquitectura', 'Salta 246, Pozo del Molle', '@nodo.ing.arq']],
             colWidths=[57*mm, 56*mm, 57*mm], rowHeights=[7*mm])
