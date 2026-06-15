@@ -1,18 +1,22 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api import auth, clientes, setup, proyectos
-from app.models import user, cliente, proyecto  # noqa: F401
+from app.api import auth, clientes, setup, proyectos, presupuestos
+from app.models import user, cliente, proyecto, presupuesto  # noqa: F401
 
-# Relación inversa Cliente → Proyectos
 from app.models.cliente import Cliente
 from app.models.proyecto import Proyecto
+from app.models.presupuesto import Presupuesto
+from sqlalchemy.orm import relationship
+
 if not hasattr(Cliente, 'proyectos'):
-    from sqlalchemy.orm import relationship
     Cliente.proyectos = relationship("Proyecto", back_populates="cliente",
                                      cascade="all, delete-orphan")
 
-# Crear tablas
+if not hasattr(Cliente, 'presupuestos'):
+    Cliente.presupuestos = relationship("Presupuesto", back_populates="cliente",
+                                        cascade="all, delete-orphan")
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -33,6 +37,7 @@ app.include_router(auth.router)
 app.include_router(clientes.router)
 app.include_router(setup.router)
 app.include_router(proyectos.router)
+app.include_router(presupuestos.router)
 
 @app.get("/")
 def root():
