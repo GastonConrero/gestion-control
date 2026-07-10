@@ -126,6 +126,10 @@ def generar_pdf(
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.enums import TA_RIGHT, TA_CENTER
+        from xml.sax.saxutils import escape as _xml_escape
+
+        def esc(texto):
+            return _xml_escape(str(texto)) if texto is not None else ''
 
         buffer = io.BytesIO()
         NARANJA    = colors.HexColor('#D4502A')
@@ -149,7 +153,7 @@ def generar_pdf(
         s_derecha = estilo('derecha', fontSize=9,  textColor=GRIS,   fontName='Helvetica', alignment=TA_RIGHT)
 
         fecha_str      = r.fecha_emision.strftime('%d/%m/%Y') if r.fecha_emision else datetime.now().strftime('%d/%m/%Y')
-        cliente_nombre = f"{r.cliente.apellido}, {r.cliente.nombre}" if r.cliente else "—"
+        cliente_nombre = f"{esc(r.cliente.apellido)}, {esc(r.cliente.nombre)}" if r.cliente else "—"
 
         logo_path = os.path.abspath(LOGO_PATH)
         logo_img = Image(logo_path, width=18*mm, height=18*mm)
@@ -181,12 +185,12 @@ def generar_pdf(
         # Datos generales
         filas = [
             [Paragraph('<b>CLIENTE</b>', s_small),  Paragraph(cliente_nombre, s_normal)],
-            [Paragraph('<b>CONCEPTO</b>', s_small),  Paragraph(r.concepto, s_normal)],
+            [Paragraph('<b>CONCEPTO</b>', s_small),  Paragraph(esc(r.concepto), s_normal)],
         ]
         if r.proyecto:
-            filas.append([Paragraph('<b>PROYECTO</b>', s_small), Paragraph(r.proyecto.nombre, s_normal)])
+            filas.append([Paragraph('<b>PROYECTO</b>', s_small), Paragraph(esc(r.proyecto.nombre), s_normal)])
         if r.presupuesto:
-            filas.append([Paragraph('<b>PRESUPUESTO DE ORIGEN</b>', s_small), Paragraph(r.presupuesto.numero, s_normal)])
+            filas.append([Paragraph('<b>PRESUPUESTO DE ORIGEN</b>', s_small), Paragraph(esc(r.presupuesto.numero), s_normal)])
 
         t = Table(filas, colWidths=[45*mm, 120*mm])
         t.setStyle(TableStyle([
@@ -217,7 +221,7 @@ def generar_pdf(
         if r.referencia:
             story.append(Spacer(1, 1*mm))
             etiqueta = 'Nro. de cheque' if 'cheque' in str(r.forma_cobro).lower() else 'Referencia'
-            story.append(Paragraph(f'<b>{etiqueta}:</b> {r.referencia}', s_normal))
+            story.append(Paragraph(f'<b>{etiqueta}:</b> {esc(r.referencia)}', s_normal))
         story.append(Spacer(1, 6*mm))
 
         # Notas
@@ -227,7 +231,7 @@ def generar_pdf(
             story.append(Paragraph('NOTAS',
                 estilo('sec2', fontSize=10, textColor=GRIS, fontName='Helvetica-Bold')))
             story.append(Spacer(1, 2*mm))
-            story.append(Paragraph(f'• {r.notas}', s_small))
+            story.append(Paragraph(f'• {esc(r.notas)}', s_small))
             story.append(Spacer(1, 8*mm))
         else:
             story.append(Spacer(1, 8*mm))
