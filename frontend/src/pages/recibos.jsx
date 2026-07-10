@@ -90,6 +90,14 @@ export default function Recibos() {
     } finally { setGuardando(false) }
   }
 
+  const eliminar = async (id) => {
+    if (!window.confirm('¿Eliminar este recibo? Esta acción no se puede deshacer.')) return
+    try {
+      await api.delete(`/api/recibos/${id}`)
+      cargar()
+    } catch (e) { alert(e?.response?.data?.detail || 'Error al eliminar') }
+  }
+
   const descargarPDF = async (id, numero) => {
     setDescargando(id)
     try {
@@ -148,6 +156,7 @@ export default function Recibos() {
                   <button onClick={() => descargarPDF(r.id, r.numero)} style={s.btnAccion} disabled={descargando === r.id}>
                     {descargando === r.id ? 'Generando...' : 'PDF'}
                   </button>
+                  <button onClick={() => eliminar(r.id)} style={{...s.btnAccion, color:'#dc2626'}}>Eliminar</button>
                 </div>
               </div>
             </div>
