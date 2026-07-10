@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import Inicio from './pages/Inicio'
 import Clientes from './pages/Clientes'
 import Presupuestos from './pages/presupuestos'
+import Recibos from './pages/recibos'
 
 function RutaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -22,7 +23,7 @@ export default function App() {
             <Route path="clientes" element={<Clientes />} />
             <Route path="proyectos" element={<div style={{padding:20}}><h3>Proyectos</h3></div>} />
             <Route path="presupuestos" element={<Presupuestos />} />
-            <Route path="recibos" element={<div style={{padding:20}}><h3>Recibos</h3></div>} />
+            <Route path="recibos" element={<Recibos />} />
             <Route path="ordenes-pago" element={<div style={{padding:20}}><h3>Órdenes de Pago</h3></div>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
