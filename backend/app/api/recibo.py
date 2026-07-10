@@ -108,6 +108,21 @@ def obtener_recibo(
     return _enriquecer(r)
 
 
+@router.delete("/{recibo_id}")
+def eliminar_recibo(
+    recibo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    r = db.query(Recibo).filter(Recibo.id == recibo_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Recibo no encontrado")
+    db.delete(r)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/{recibo_id}/pdf")
 def generar_pdf(
     recibo_id: int,
