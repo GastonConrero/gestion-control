@@ -1,52 +1,68 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
-from app.models.presupuesto import EstadoPresupuesto, FormaPago
+from app.models.proyecto import EstadoProyecto, PlantillaHonorario
 
 
-class PresupuestoBase(BaseModel):
-    tipo            : str
+# ── Honorario ─────────────────────────────────────────────────────────────────
+
+class HonorarioBase(BaseModel):
+    honorario_cobrado : Optional[Decimal] = None
+    gastos            : Optional[Decimal] = Decimal("0")
+    plantilla         : Optional[PlantillaHonorario] = PlantillaHonorario.solo_gaston
+    pct_gaston        : Optional[Decimal] = Decimal("100")
+    pct_valentina     : Optional[Decimal] = Decimal("0")
+    pct_valentin      : Optional[Decimal] = Decimal("0")
+    liquidado         : Optional[bool] = False
+    notas_liquidacion : Optional[str] = None
+
+class HonorarioCreate(HonorarioBase):
+    pass
+
+class HonorarioUpdate(HonorarioBase):
+    pass
+
+class HonorarioOut(HonorarioBase):
+    id              : int
+    proyecto_id     : int
+    neto            : Optional[Decimal] = None
+    monto_gaston    : Optional[Decimal] = None
+    monto_valentina : Optional[Decimal] = None
+    monto_valentin  : Optional[Decimal] = None
+    created_at      : Optional[datetime] = None
+    updated_at      : Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ── Proyecto ──────────────────────────────────────────────────────────────────
+
+class ProyectoBase(BaseModel):
+    nombre          : str
     descripcion     : Optional[str] = None
-    honorario_total : Decimal
-    forma_pago      : Optional[FormaPago] = FormaPago.a_convenir
-    detalle_pago    : Optional[str] = None
-    superficie      : Optional[Decimal] = None
-    incluye         : Optional[str] = None
-    no_incluye      : Optional[str] = None
-    notas           : Optional[str] = None
-    profesional_1   : Optional[str] = "Ing. Gastón Conrero"
-    profesional_2   : Optional[str] = None
-
-
-class PresupuestoCreate(PresupuestoBase):
-    cliente_id: int
-
-
-class PresupuestoUpdate(BaseModel):
     tipo            : Optional[str] = None
-    descripcion     : Optional[str] = None
+    estado          : Optional[EstadoProyecto] = EstadoProyecto.en_curso
     honorario_total : Optional[Decimal] = None
-    forma_pago      : Optional[FormaPago] = None
-    detalle_pago    : Optional[str] = None
-    superficie      : Optional[Decimal] = None
-    incluye         : Optional[str] = None
-    no_incluye      : Optional[str] = None
+    fecha_inicio    : Optional[datetime] = None
+    fecha_fin       : Optional[datetime] = None
     notas           : Optional[str] = None
-    profesional_1   : Optional[str] = None
-    profesional_2   : Optional[str] = None
 
+class ProyectoCreate(ProyectoBase):
+    pass
 
-class PresupuestoOut(PresupuestoBase):
-    id                 : int
-    numero             : str
-    cliente_id         : int
-    estado             : EstadoPresupuesto
-    fecha_emision      : Optional[datetime] = None
-    fecha_envio        : Optional[datetime] = None
-    fecha_confirmacion : Optional[datetime] = None
-    created_at         : Optional[datetime] = None
-    cliente_apellido   : Optional[str] = None
-    cliente_nombre     : Optional[str] = None
+class ProyectoUpdate(ProyectoBase):
+    nombre: Optional[str] = None
+
+class ProyectoOut(ProyectoBase):
+    id         : int
+    cliente_id : int
+    created_at : Optional[datetime] = None
+    updated_at : Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+class ProyectoDetalle(ProyectoOut):
+    honorarios: List[HonorarioOut] = []
 
     model_config = {"from_attributes": True}
