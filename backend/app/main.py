@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos, recibo as recibos, orden_pago as ordenes_pago, dashboard
-from app.models import user, cliente, proyecto, presupuesto, recibo, orden_pago  # noqa: F401
+from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos, recibo as recibos, orden_pago as ordenes_pago, dashboard, obra as obras
+from app.models import user, cliente, proyecto, presupuesto, recibo, orden_pago, obra  # noqa: F401
 from app.models.cliente import Cliente
 from app.models.proyecto import Proyecto
 from app.models.presupuesto import Presupuesto
@@ -19,6 +19,10 @@ if not hasattr(Cliente, 'presupuestos'):
 if not hasattr(Cliente, 'recibos'):
     Cliente.recibos = relationship("Recibo", back_populates="cliente",
                                    cascade="all, delete-orphan")
+
+if not hasattr(Cliente, 'obras'):
+    Cliente.obras = relationship("Obra", back_populates="cliente",
+                                 cascade="all, delete-orphan")
 
 Base.metadata.create_all(bind=engine)
 
@@ -44,6 +48,7 @@ app.include_router(presupuestos.router)
 app.include_router(recibos.router)
 app.include_router(ordenes_pago.router)
 app.include_router(dashboard.router)
+app.include_router(obras.router)
 
 @app.get("/")
 def root():
