@@ -120,11 +120,12 @@ class VincularPresupuesto(BaseModel):
 # ── Ítems (cómputo) ──────────────────────────────────────────────────────────
 
 class ItemBase(BaseModel):
-    orden           : Optional[int] = 0
-    designacion     : str
-    unidad          : Optional[str] = None
-    cantidad        : Decimal = Decimal("0")
-    precio_unitario : Decimal = Decimal("0")
+    orden                   : Optional[int] = 0
+    designacion             : str
+    unidad                  : Optional[str] = None
+    cantidad                : Decimal = Decimal("0")
+    precio_unitario         : Decimal = Decimal("0")  # cuenta cliente
+    precio_unitario_albanil : Decimal = Decimal("0")  # cuenta albañil
 
 
 class ItemCreate(ItemBase):
@@ -132,17 +133,19 @@ class ItemCreate(ItemBase):
 
 
 class ItemUpdate(BaseModel):
-    orden           : Optional[int] = None
-    designacion     : Optional[str] = None
-    unidad          : Optional[str] = None
-    cantidad        : Optional[Decimal] = None
-    precio_unitario : Optional[Decimal] = None
+    orden                   : Optional[int] = None
+    designacion             : Optional[str] = None
+    unidad                  : Optional[str] = None
+    cantidad                : Optional[Decimal] = None
+    precio_unitario         : Optional[Decimal] = None
+    precio_unitario_albanil : Optional[Decimal] = None
 
 
 class ItemOut(ItemBase):
-    id      : int
-    obra_id : int
-    total   : Decimal  # cantidad * precio_unitario
+    id            : int
+    obra_id       : int
+    total         : Decimal  # cantidad * precio_unitario (cliente)
+    total_albanil : Decimal  # cantidad * precio_unitario_albanil
 
     model_config = {"from_attributes": True}
 
@@ -161,50 +164,66 @@ class CertificadoCreate(BaseModel):
 
 
 class CertificadoItemOut(BaseModel):
-    id                  : int
-    item_id             : int
-    designacion         : Optional[str] = None
-    unidad              : Optional[str] = None
-    total_item_snapshot : Decimal
-    pct_acum_anterior   : Decimal
-    pct_acum_nuevo      : Decimal
-    pct_mes             : Decimal
-    monto_mes           : Decimal
-    monto_acum          : Decimal
-    saldo               : Decimal
+    id                          : int
+    item_id                     : int
+    designacion                 : Optional[str] = None
+    unidad                      : Optional[str] = None
+    pct_acum_anterior           : Decimal
+    pct_acum_nuevo              : Decimal
+    pct_mes                     : Decimal
+    # Cuenta cliente
+    total_item_snapshot         : Decimal
+    monto_mes                   : Decimal
+    monto_acum                  : Decimal
+    saldo                       : Decimal
+    # Cuenta albañil
+    total_item_snapshot_albanil : Decimal
+    monto_mes_albanil           : Decimal
+    monto_acum_albanil          : Decimal
+    saldo_albanil                : Decimal
 
     model_config = {"from_attributes": True}
 
 
 class CertificadoOut(BaseModel):
-    id                : int
-    obra_id           : int
-    numero            : int
-    periodo           : str
-    fecha_certificado : Optional[date] = None
-    created_at        : Optional[datetime] = None
-    ejecucion_mes     : Optional[Decimal] = None
-    ejecucion_acum    : Optional[Decimal] = None
-    items             : List[CertificadoItemOut] = []
+    id                     : int
+    obra_id                : int
+    numero                 : int
+    periodo                : str
+    fecha_certificado      : Optional[date] = None
+    created_at             : Optional[datetime] = None
+    ejecucion_mes          : Optional[Decimal] = None
+    ejecucion_acum         : Optional[Decimal] = None
+    ejecucion_mes_albanil  : Optional[Decimal] = None
+    ejecucion_acum_albanil : Optional[Decimal] = None
+    items                  : List[CertificadoItemOut] = []
 
     model_config = {"from_attributes": True}
 
 
 class ResumenCertificados(BaseModel):
-    presupuesto_base    : Decimal
-    ajuste_ipc_acumulado: Decimal
-    total_actualizado   : Decimal
-    ejecucion_acumulada : Decimal
-    saldo_pendiente     : Decimal
+    presupuesto_base             : Decimal
+    ajuste_ipc_acumulado         : Decimal
+    total_actualizado            : Decimal
+    ejecucion_acumulada          : Decimal
+    saldo_pendiente              : Decimal
+    presupuesto_base_albanil     : Decimal
+    ajuste_ipc_acumulado_albanil : Decimal
+    total_actualizado_albanil    : Decimal
+    ejecucion_acumulada_albanil  : Decimal
+    saldo_pendiente_albanil      : Decimal
 
 
 class PuntoCurva(BaseModel):
-    periodo          : str
-    fecha            : Optional[date] = None
-    ejecutado_acum   : Decimal
-    pagos_acum       : Decimal
+    periodo                 : str
+    fecha                   : Optional[date] = None
+    ejecutado_acum          : Decimal
+    pagos_acum              : Decimal
+    ejecutado_acum_albanil  : Decimal
+    pagos_acum_albanil      : Decimal
 
 
 class CurvaOut(BaseModel):
     puntos : List[PuntoCurva]
-    alerta : bool  # True si en algún punto pagos_acum > ejecutado_acum
+    alerta : bool          # True si en algún punto pagos_acum > ejecutado_acum (cliente)
+    alerta_albanil : bool  # ídem para la cuenta albañil
