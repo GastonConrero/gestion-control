@@ -11,6 +11,12 @@ function periodoActual() {
   return `${MESES[d.getMonth()]} ${d.getFullYear()}`
 }
 
+function fmtFechaHora(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return d.toLocaleDateString('es-AR') + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+}
+
 export default function InformeMensual({ clienteId, obraId }) {
   const [periodo, setPeriodo] = useState(periodoActual())
   const [semanas, setSemanas] = useState({})       // { 1: {...}, 2: {...}, ... }
@@ -20,15 +26,17 @@ export default function InformeMensual({ clienteId, obraId }) {
   const [guardandoSintesis, setGuardandoSintesis] = useState(false)
   const [descargando, setDescargando] = useState(false)
   const [guardadoOk, setGuardadoOk] = useState(null)
+  const [historial, setHistorial] = useState([])
 
   const base = `/api/clientes/${clienteId}/obras/${obraId}/informe`
 
   const cargar = async () => {
     setLoading(true)
     try {
-      const [rs, rsin] = await Promise.all([
+      const [rs, rsin, rh] = await Promise.all([
         api.get(`${base}/seguimiento`, { params: { periodo } }),
         api.get(`${base}/sintesis`, { params: { periodo } }),
+        api.get(`${base}/historial`),
       ])
       const mapa = {}
       for (let n = 1; n <= 4; n++) {
@@ -37,6 +45,7 @@ export default function InformeMensual({ clienteId, obraId }) {
       }
       setSemanas(mapa)
       setSintesis(rsin.data?.texto || '')
+      setHistorial(rh.data)
     } catch {
       setSemanas({ 1: {}, 2: {}, 3: {}, 4: {} })
     } finally { setLoading(false) }
@@ -72,14 +81,16 @@ export default function InformeMensual({ clienteId, obraId }) {
     finally { setGuardandoSintesis(false) }
   }
 
-  const descargarPDF = async () => {
+  const descargarPDF = async (periodoDescarga = periodo) => {
     setDescargando(true)
     try {
-      const res = await api.get(`${base}/pdf`, { params: { periodo }, responseType: 'blob' })
+      const res = await api.get(`${base}/pdf`, { params: { periodo: periodoDescarga }, responseType: 'blob' })
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
       const a = document.createElement('a')
-      a.href = url; a.download = `informe_${periodo.replace(' ', '_')}.pdf`; a.click()
+      a.href = url; a.download = `informe_${periodoDescarga.replace(' ', '_')}.pdf`; a.click()
       window.URL.revokeObjectURL(url)
+      const rh = await api.get(`${base}/historial`)
+      setHistorial(rh.data)
     } catch { alert('Error al generar el PDF. Revisá que haya al menos un certificado cargado para este período.') }
     finally { setDescargando(false) }
   }
@@ -94,7 +105,7 @@ export default function InformeMensual({ clienteId, obraId }) {
         <label style={s.label}>Período</label>
         <input style={s.inputPeriodo} value={periodo} onChange={e => setPeriodo(e.target.value)}
           placeholder="Ej: Julio 2026" />
-        <button onClick={descargarPDF} style={s.btnPdf} disabled={descargando}>
+        <button onClick={() => descargarPDF()} style={s.btnPdf} disabled={descargando}>
           {descargando ? 'Generando...' : '📄 Descargar PDF'}
         </button>
       </div>
@@ -152,6 +163,26 @@ export default function InformeMensual({ clienteId, obraId }) {
           <div style={s.hintFormula}>
             Las fotos se cargan pegando un link (por ejemplo, subida a Google Drive/WhatsApp Web y "copiar link"). Hasta 2 fotos por semana, según el formato del informe.
           </div>
+
+          {historial.length > 0 && (
+            <div style={s.historialBox}>
+              <div style={s.subTitulo}>Informes generados</div>
+              <div style={s.historialLista}>
+                {historial.map(h => (
+                  <div key={h.id} style={s.historialFila}>
+                    <div>
+                      <span style={s.historialNumero}>{h.numero}</span>
+                      <span style={s.historialDetalle}> · {h.periodo} · {h.usuario_nombre}</span>
+                      <div style={s.historialFecha}>{fmtFechaHora(h.created_at)}</div>
+                    </div>
+                    <button onClick={() => descargarPDF(h.periodo)} style={s.btnGuardarSemana} disabled={descargando}>
+                      Volver a descargar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -178,5 +209,11 @@ const s = {
   sintesisBox:    { background: '#FBF6EE', borderRadius: 4, padding: 14, marginBottom: 10 },
   subTitulo:      { fontSize: 12, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 8 },
   hintFormula:    { fontSize: 11, color: '#999' },
+  historialBox:   { marginTop: 18, paddingTop: 14, borderTop: '1px solid #f2f2f2' },
+  historialLista: { display: 'flex', flexDirection: 'column', gap: 6 },
+  historialFila:  { display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #eee', borderRadius: 3, padding: '8px 12px' },
+  historialNumero:{ fontSize: 12, fontWeight: 700, color: '#D4502A' },
+  historialDetalle:{ fontSize: 12, color: '#555' },
+  historialFecha: { fontSize: 11, color: '#999', marginTop: 2 },
   empty:          { textAlign: 'center', color: '#aaa', padding: 20, fontSize: 13 },
 }
