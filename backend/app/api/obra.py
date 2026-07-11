@@ -185,6 +185,44 @@ def vincular_presupuesto(
     return _enriquecer_obra(o, True)
 
 
+@router.get("/{obra_id}/portal-link")
+def obtener_link_portal(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Devuelve el token del Portal del Cliente (sección 4.15), generándolo la
+    primera vez que se pide. Con ese token se arma el link único (sin
+    usuario/contraseña) para enviar por WhatsApp.
+    """
+    o = _get_obra(db, cliente_id, obra_id)
+    if not o.token_portal:
+        import uuid
+        o.token_portal = uuid.uuid4().hex
+        db.commit()
+        db.refresh(o)
+    return {"token": o.token_portal}
+
+
+@router.post("/{obra_id}/portal-link/regenerar")
+def regenerar_link_portal(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Invalida el link anterior (por si se compartió por error) y genera uno nuevo."""
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    import uuid
+    o.token_portal = uuid.uuid4().hex
+    db.commit()
+    db.refresh(o)
+    return {"token": o.token_portal}
+
+
 # ── Cronograma de pagos ──────────────────────────────────────────────────────
 
 @router.get("/{obra_id}/cronograma", response_model=List[CuotaOut])
