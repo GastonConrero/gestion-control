@@ -12,7 +12,8 @@ from app.models.user import User
 from app.models.obra import Obra, CronogramaCuota, CertificadoAvance, EstadoCuota
 from app.models.informe import SeguimientoSemanal, SintesisMensual, InformeGenerado
 from app.schemas.informe import (
-    SeguimientoUpsert, SeguimientoOut, SintesisUpsert, SintesisOut, InformeGeneradoOut,
+    SeguimientoUpsert, SeguimientoOut, SintesisUpsert, SintesisOut,
+    InformeGeneradoOut, InformeGeneradoUpdate,
 )
 
 router = APIRouter(prefix="/api/clientes/{cliente_id}/obras/{obra_id}/informe", tags=["informe"])
@@ -163,6 +164,51 @@ def historial_informes(
         d["usuario_nombre"] = r.usuario.nombre if r.usuario else None
         salida.append(d)
     return salida
+
+
+@router.put("/historial/{informe_id}", response_model=InformeGeneradoOut)
+def editar_informe_historial(
+    cliente_id: int,
+    obra_id: int,
+    informe_id: int,
+    datos: InformeGeneradoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Corrige el período de un registro del historial (por si quedó mal escrito)."""
+    _get_obra(db, cliente_id, obra_id)
+    r = db.query(InformeGenerado).filter(
+        InformeGenerado.id == informe_id, InformeGenerado.obra_id == obra_id
+    ).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
+    if datos.periodo is not None:
+        r.periodo = datos.periodo
+    db.commit()
+    db.refresh(r)
+    d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+    d["usuario_nombre"] = r.usuario.nombre if r.usuario else None
+    return d
+
+
+@router.delete("/historial/{informe_id}")
+def eliminar_informe_historial(
+    cliente_id: int,
+    obra_id: int,
+    informe_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Elimina un registro del historial de informes emitidos (por si algo salió mal)."""
+    _get_obra(db, cliente_id, obra_id)
+    r = db.query(InformeGenerado).filter(
+        InformeGenerado.id == informe_id, InformeGenerado.obra_id == obra_id
+    ).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
+    db.delete(r)
+    db.commit()
+    return {"ok": True}
 
 
 # ── Generación del PDF (3 páginas, sección 4.11) ──────────────────────────────
