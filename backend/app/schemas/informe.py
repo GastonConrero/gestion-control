@@ -50,3 +50,7 @@ class InformeGeneradoOut(BaseModel):
     created_at     : Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class InformeGeneradoUpdate(BaseModel):
+    periodo : Optional[str] = None
