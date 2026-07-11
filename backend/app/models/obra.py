@@ -46,6 +46,14 @@ class Obra(Base):
         "CronogramaCuota", back_populates="obra",
         cascade="all, delete-orphan", order_by="CronogramaCuota.numero"
     )
+    items_computo         = relationship(
+        "ItemObra", back_populates="obra",
+        cascade="all, delete-orphan", order_by="ItemObra.orden"
+    )
+    certificados          = relationship(
+        "CertificadoAvance", back_populates="obra",
+        cascade="all, delete-orphan", order_by="CertificadoAvance.numero"
+    )
 
 
 class CronogramaCuota(Base):
@@ -99,3 +107,79 @@ class AjusteIPCHistorial(Base):
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
 
     cuota               = relationship("CronogramaCuota")
+
+
+class ItemObra(Base):
+    """
+    Ítem del cómputo de la obra (planilla de ítems presupuestados).
+    Es la base sobre la que se cargan los certificados de avance mes a mes.
+    """
+    __tablename__ = "items_obra"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    obra_id         = Column(Integer, ForeignKey("obras.id"), nullable=False)
+
+    orden           = Column(Integer, nullable=False, default=0)
+    designacion     = Column(String, nullable=False)
+    unidad          = Column(String, nullable=True)   # ej: m2, m3, gl, ml
+    cantidad        = Column(Numeric(14, 3), nullable=False, default=0)
+    precio_unitario = Column(Numeric(14, 2), nullable=False, default=0)
+
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    obra            = relationship("Obra", back_populates="items_computo")
+
+
+class CertificadoAvance(Base):
+    """
+    Certificado de avance de un período (mensual). Contiene el % acumulado
+    cargado para cada ítem de la obra en ese momento; el sistema calcula
+    todo lo demás (sección 4.6): % del mes, $ del mes, $ acumulado, saldo.
+    """
+    __tablename__ = "certificados_avance"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    obra_id            = Column(Integer, ForeignKey("obras.id"), nullable=False)
+
+    numero             = Column(Integer, nullable=False)
+    periodo            = Column(String, nullable=False)   # ej: "Julio 2026"
+    fecha_certificado  = Column(Date, nullable=True)
+
+    created_at         = Column(DateTime(timezone=True), server_default=func.now())
+
+    obra               = relationship("Obra", back_populates="certificados")
+    items              = relationship(
+        "CertificadoItem", back_populates="certificado",
+        cascade="all, delete-orphan"
+    )
+
+
+class CertificadoItem(Base):
+    """
+    Línea de un certificado: el % acumulado cargado para un ítem puntual,
+    con los cálculos derivados (sección 4.6):
+        pct_mes    = pct_acum_nuevo - pct_acum_anterior
+        monto_mes  = (pct_mes / 100) * total_item
+        monto_acum = (pct_acum_nuevo / 100) * total_item
+        saldo      = total_item - monto_acum
+    total_item queda "congelado" (snapshot) al momento del certificado,
+    para que cambios posteriores de precio no alteren certificados pasados.
+    """
+    __tablename__ = "certificado_items"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    certificado_id      = Column(Integer, ForeignKey("certificados_avance.id"), nullable=False)
+    item_id             = Column(Integer, ForeignKey("items_obra.id"), nullable=False)
+
+    total_item_snapshot = Column(Numeric(14, 2), nullable=False, default=0)
+
+    pct_acum_anterior   = Column(Numeric(6, 3), nullable=False, default=0)
+    pct_acum_nuevo      = Column(Numeric(6, 3), nullable=False, default=0)
+    pct_mes             = Column(Numeric(6, 3), nullable=False, default=0)
+
+    monto_mes           = Column(Numeric(14, 2), nullable=False, default=0)
+    monto_acum          = Column(Numeric(14, 2), nullable=False, default=0)
+    saldo               = Column(Numeric(14, 2), nullable=False, default=0)
+
+    certificado         = relationship("CertificadoAvance", back_populates="items")
+    item                = relationship("ItemObra")
