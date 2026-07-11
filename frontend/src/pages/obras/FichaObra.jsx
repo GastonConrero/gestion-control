@@ -38,6 +38,7 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
   const [modalIPC, setModalIPC]     = useState(null)    // cuota a ajustar
   const [formIPC, setFormIPC]       = useState(EMPTY_IPC)
   const [modalPresu, setModalPresu] = useState(false)
+  const [copiado, setCopiado] = useState(false)
   const [presuElegido, setPresuElegido] = useState('')
   const [guardando, setGuardando]   = useState(false)
   const [errorModal, setErrorModal] = useState('')
@@ -161,6 +162,27 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
     } finally { setGuardando(false) }
   }
 
+  // ── Portal del cliente ───────────────────────────────────────────────────
+  const copiarLinkPortal = async () => {
+    try {
+      const r = await api.get(`/api/clientes/${clienteId}/obras/${obraId}/portal-link`)
+      const url = `${window.location.origin}/portal/${r.data.token}`
+      await navigator.clipboard.writeText(url)
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 2000)
+    } catch { alert('Error al generar el link') }
+  }
+
+  const regenerarLinkPortal = async () => {
+    if (!window.confirm('¿Generar un link nuevo? El link anterior dejará de funcionar (por si se compartió por error).')) return
+    try {
+      const r = await api.post(`/api/clientes/${clienteId}/obras/${obraId}/portal-link/regenerar`)
+      const url = `${window.location.origin}/portal/${r.data.token}`
+      await navigator.clipboard.writeText(url)
+      alert('Nuevo link generado y copiado al portapapeles.')
+    } catch { alert('Error al regenerar el link') }
+  }
+
   if (loading) return <div style={s.empty}>Cargando...</div>
   if (!obra) return <div style={s.empty}>{error || 'No se encontró la obra'}</div>
 
@@ -196,6 +218,19 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
               {esGaston && (
                 <button onClick={() => { setModalPresu(true); setErrorModal('') }} style={s.linkBtn}>
                   {obra.presupuesto_numero ? 'Cambiar' : 'Vincular presupuesto confirmado'}
+                </button>
+              )}
+            </div>
+          </div>
+          <div>
+            <span style={s.datoLabel}>Portal del cliente</span>
+            <div style={s.datoValor}>
+              <button onClick={copiarLinkPortal} style={s.linkBtn}>
+                {copiado ? '✓ Link copiado' : '🔗 Copiar link para enviar'}
+              </button>
+              {esGaston && (
+                <button onClick={regenerarLinkPortal} style={{ ...s.linkBtn, color: '#999', marginLeft: 10 }}>
+                  Generar link nuevo
                 </button>
               )}
             </div>
