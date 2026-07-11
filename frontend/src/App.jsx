@@ -7,6 +7,7 @@ import Clientes from './pages/Clientes'
 import Presupuestos from './pages/presupuestos'
 import Recibos from './pages/recibos'
 import OrdenesPago from './pages/ordenes-pago'
+import PortalCliente from './pages/PortalCliente'
 
 function RutaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -19,6 +20,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/portal/:token" element={<PortalCliente />} />
           <Route path="/" element={<RutaProtegida><Layout /></RutaProtegida>}>
             <Route index element={<Inicio />} />
             <Route path="clientes" element={<Clientes />} />
