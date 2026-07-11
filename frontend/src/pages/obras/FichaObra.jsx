@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../../utils/api'
+import CertificadosAvance from './CertificadosAvance'
 
 const ESTADOS_OBRA = {
   en_curso:  { label: 'En curso',  color: '#D4502A', bg: '#fff4f1' },
@@ -204,7 +205,7 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
 
       {!esGaston && (
         <div style={s.avisoRestringido}>
-          El cronograma de pagos y los montos son visibles solo para Gastón.
+          El cronograma de pagos y los montos son visibles solo para Gastón. Los certificados de avance sí los podés cargar y ver más abajo.
         </div>
       )}
 
@@ -306,6 +307,9 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
           </div>
         </>
       )}
+
+      <CertificadosAvance clienteId={clienteId} obraId={obraId} rol={rol} />
+
 
       {/* Modal: nueva cuota */}
       {modalCuota !== null && (
