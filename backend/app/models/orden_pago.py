@@ -5,7 +5,7 @@ from app.core.database import Base
 import enum
 
 
-class FormaPago(str, enum.Enum):
+class FormaPagoOP(str, enum.Enum):
     efectivo      = "efectivo"
     transferencia = "transferencia"
     cheque        = "cheque"
@@ -26,11 +26,11 @@ class OrdenPago(Base):
 
     concepto        = Column(Text, nullable=False)
     monto           = Column(Numeric(14, 2), nullable=False)
-    forma_pago      = Column(Enum(FormaPago), nullable=False)
+    forma_pago      = Column(Enum(FormaPagoOP, name="forma_pago_op"), nullable=False)
     referencia      = Column(String, nullable=True)  # nro de cheque o de transferencia
     notas           = Column(Text, nullable=True)
 
-    estado          = Column(Enum(EstadoOrdenPago), nullable=False, default=EstadoOrdenPago.pendiente)
+    estado          = Column(Enum(EstadoOrdenPago, name="estado_orden_pago"), nullable=False, default=EstadoOrdenPago.pendiente)
     fecha_emision   = Column(DateTime(timezone=True), server_default=func.now())
     fecha_pago      = Column(DateTime(timezone=True), nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
