@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
+from datetime import datetime
 import io
 import os
 
@@ -9,9 +10,9 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.obra import Obra, CronogramaCuota, CertificadoAvance, EstadoCuota
-from app.models.informe import SeguimientoSemanal, SintesisMensual
+from app.models.informe import SeguimientoSemanal, SintesisMensual, InformeGenerado
 from app.schemas.informe import (
-    SeguimientoUpsert, SeguimientoOut, SintesisUpsert, SintesisOut,
+    SeguimientoUpsert, SeguimientoOut, SintesisUpsert, SintesisOut, InformeGeneradoOut,
 )
 
 router = APIRouter(prefix="/api/clientes/{cliente_id}/obras/{obra_id}/informe", tags=["informe"])
@@ -138,6 +139,30 @@ def guardar_sintesis(
     db.commit()
     db.refresh(s)
     return s
+
+
+# ── Historial de informes emitidos ────────────────────────────────────────────
+
+@router.get("/historial", response_model=List[InformeGeneradoOut])
+def historial_informes(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
+    registros = (
+        db.query(InformeGenerado)
+        .filter(InformeGenerado.obra_id == o.id)
+        .order_by(InformeGenerado.created_at.desc())
+        .all()
+    )
+    salida = []
+    for r in registros:
+        d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+        d["usuario_nombre"] = r.usuario.nombre if r.usuario else None
+        salida.append(d)
+    return salida
 
 
 # ── Generación del PDF (3 páginas, sección 4.11) ──────────────────────────────
@@ -416,6 +441,16 @@ def generar_informe_pdf(
 
         doc.build(story)
         buffer.seek(0)
+
+        # Registrar la emisión en el historial (numeración correlativa por obra)
+        numero_secuencia = db.query(InformeGenerado).filter(InformeGenerado.obra_id == o.id).count() + 1
+        anio = datetime.now().year
+        numero = f"INF-{anio}-{str(numero_secuencia).zfill(3)}"
+        db.add(InformeGenerado(
+            obra_id=o.id, numero=numero, periodo=periodo, usuario_id=current_user.id,
+        ))
+        db.commit()
+
         nombre_archivo = f"informe_{o.nombre.replace(' ', '_')}_{periodo.replace(' ', '_')}.pdf"
         return StreamingResponse(buffer, media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"})
