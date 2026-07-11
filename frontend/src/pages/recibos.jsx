@@ -57,6 +57,14 @@ export default function Recibos() {
   useEffect(() => { cargar() }, [filtroCliente])
   useEffect(() => { cargarClientes() }, [])
 
+  // Cerrar el modal con Escape
+  useEffect(() => {
+    if (!modalAbierto) return
+    const onKeyDown = (e) => { if (e.key === 'Escape') cerrar() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [modalAbierto])
+
   // Cuando cambia el cliente elegido en el form, cargamos sus proyectos y presupuestos
   useEffect(() => {
     if (!form.cliente_id) { setProyectos([]); setPresupuestos([]); return }
@@ -175,7 +183,7 @@ export default function Recibos() {
               <div style={s.grid}>
                 <div style={s.fullWidth}>
                   <label style={s.label}>Cliente <span style={{color:'#D4502A'}}>*</span></label>
-                  <select style={s.input} value={form.cliente_id}
+                  <select style={s.input} value={form.cliente_id} autoFocus
                     onChange={e => setForm({...form, cliente_id: e.target.value, proyecto_id: '', presupuesto_id: ''})}>
                     <option value="">— Seleccioná un cliente —</option>
                     {clientes.map(c => <option key={c.id} value={c.id}>{c.apellido}, {c.nombre}</option>)}
