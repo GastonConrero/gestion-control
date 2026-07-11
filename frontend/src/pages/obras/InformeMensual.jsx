@@ -27,6 +27,8 @@ export default function InformeMensual({ clienteId, obraId }) {
   const [descargando, setDescargando] = useState(false)
   const [guardadoOk, setGuardadoOk] = useState(null)
   const [historial, setHistorial] = useState([])
+  const [editandoHistId, setEditandoHistId] = useState(null)
+  const [textoEditHist, setTextoEditHist] = useState('')
 
   const base = `/api/clientes/${clienteId}/obras/${obraId}/informe`
 
@@ -93,6 +95,28 @@ export default function InformeMensual({ clienteId, obraId }) {
       setHistorial(rh.data)
     } catch { alert('Error al generar el PDF. Revisá que haya al menos un certificado cargado para este período.') }
     finally { setDescargando(false) }
+  }
+
+  const eliminarInforme = async (id) => {
+    if (!window.confirm('¿Eliminar este registro del historial? El informe ya descargado no se ve afectado, solo se borra el registro.')) return
+    try {
+      await api.delete(`${base}/historial/${id}`)
+      const rh = await api.get(`${base}/historial`)
+      setHistorial(rh.data)
+    } catch { alert('Error al eliminar') }
+  }
+
+  const abrirEditHist = (h) => { setEditandoHistId(h.id); setTextoEditHist(h.periodo) }
+  const cancelarEditHist = () => { setEditandoHistId(null); setTextoEditHist('') }
+
+  const guardarEditHist = async (id) => {
+    if (!textoEditHist.trim()) return
+    try {
+      await api.put(`${base}/historial/${id}`, { periodo: textoEditHist.trim() })
+      cancelarEditHist()
+      const rh = await api.get(`${base}/historial`)
+      setHistorial(rh.data)
+    } catch { alert('Error al editar') }
   }
 
   return (
@@ -170,14 +194,34 @@ export default function InformeMensual({ clienteId, obraId }) {
               <div style={s.historialLista}>
                 {historial.map(h => (
                   <div key={h.id} style={s.historialFila}>
-                    <div>
-                      <span style={s.historialNumero}>{h.numero}</span>
-                      <span style={s.historialDetalle}> · {h.periodo} · {h.usuario_nombre}</span>
-                      <div style={s.historialFecha}>{fmtFechaHora(h.created_at)}</div>
-                    </div>
-                    <button onClick={() => descargarPDF(h.periodo)} style={s.btnGuardarSemana} disabled={descargando}>
-                      Volver a descargar
-                    </button>
+                    {editandoHistId === h.id ? (
+                      <div style={s.historialEditFila}>
+                        <input
+                          style={s.inputEditHist}
+                          value={textoEditHist}
+                          autoFocus
+                          onChange={e => setTextoEditHist(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') guardarEditHist(h.id); if (e.key === 'Escape') cancelarEditHist() }}
+                        />
+                        <button onClick={() => guardarEditHist(h.id)} style={s.btnGuardarSemana}>Guardar</button>
+                        <button onClick={cancelarEditHist} style={s.btnCancelarHist}>Cancelar</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <span style={s.historialNumero}>{h.numero}</span>
+                          <span style={s.historialDetalle}> · {h.periodo} · {h.usuario_nombre}</span>
+                          <div style={s.historialFecha}>{fmtFechaHora(h.created_at)}</div>
+                        </div>
+                        <div style={s.historialAcciones}>
+                          <button onClick={() => descargarPDF(h.periodo)} style={s.btnGuardarSemana} disabled={descargando}>
+                            Volver a descargar
+                          </button>
+                          <button onClick={() => abrirEditHist(h)} style={s.btnMiniHist}>Editar</button>
+                          <button onClick={() => eliminarInforme(h.id)} style={s.btnEliminarHist}>Eliminar</button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -215,5 +259,11 @@ const s = {
   historialNumero:{ fontSize: 12, fontWeight: 700, color: '#D4502A' },
   historialDetalle:{ fontSize: 12, color: '#555' },
   historialFecha: { fontSize: 11, color: '#999', marginTop: 2 },
+  historialAcciones: { display: 'flex', gap: 6, flexShrink: 0 },
+  historialEditFila: { display: 'flex', gap: 6, alignItems: 'center', width: '100%' },
+  inputEditHist:  { flex: 1, padding: '6px 8px', border: '1px solid #D4502A', borderRadius: 3, fontSize: 12 },
+  btnMiniHist:    { background: '#fff', color: '#555', border: '1px solid #ddd', padding: '5px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontWeight: 600 },
+  btnEliminarHist: { background: '#fff', color: '#dc2626', border: '1px solid #dc2626', padding: '5px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontWeight: 600 },
+  btnCancelarHist: { background: 'none', color: '#999', border: 'none', cursor: 'pointer', fontSize: 11 },
   empty:          { textAlign: 'center', color: '#aaa', padding: 20, fontSize: 13 },
 }
