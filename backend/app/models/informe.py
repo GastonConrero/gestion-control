@@ -47,3 +47,22 @@ class SintesisMensual(Base):
     updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
 
     obra        = relationship("Obra")
+
+
+class InformeGenerado(Base):
+    """
+    Registro de cada emisión del PDF del informe mensual (auditoría), para
+    que quede un historial consultable igual que Presupuestos/Recibos/OP.
+    """
+    __tablename__ = "informes_generados"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    obra_id        = Column(Integer, ForeignKey("obras.id"), nullable=False)
+    numero         = Column(String, nullable=False)
+    periodo        = Column(String, nullable=False)
+    usuario_id     = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+    obra           = relationship("Obra")
+    usuario        = relationship("User")
