@@ -39,3 +39,14 @@ class SintesisOut(BaseModel):
     updated_at : Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class InformeGeneradoOut(BaseModel):
+    id             : int
+    obra_id        : int
+    numero         : str
+    periodo        : str
+    usuario_nombre : Optional[str] = None
+    created_at     : Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
