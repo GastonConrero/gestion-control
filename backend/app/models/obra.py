@@ -123,7 +123,10 @@ class ItemObra(Base):
     designacion     = Column(String, nullable=False)
     unidad          = Column(String, nullable=True)   # ej: m2, m3, gl, ml
     cantidad        = Column(Numeric(14, 3), nullable=False, default=0)
-    precio_unitario = Column(Numeric(14, 2), nullable=False, default=0)
+
+    # precio_unitario = cuenta cliente (con costo empresa); precio_unitario_albanil = cuenta albañil
+    precio_unitario         = Column(Numeric(14, 2), nullable=False, default=0)
+    precio_unitario_albanil = Column(Numeric(14, 2), nullable=False, default=0)
 
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -157,12 +160,13 @@ class CertificadoAvance(Base):
 class CertificadoItem(Base):
     """
     Línea de un certificado: el % acumulado cargado para un ítem puntual,
-    con los cálculos derivados (sección 4.6):
-        pct_mes    = pct_acum_nuevo - pct_acum_anterior
+    con los cálculos derivados (sección 4.6), calculados en paralelo para
+    las dos cuentas (cliente / albañil), igual que en el cronograma:
+        pct_mes    = pct_acum_nuevo - pct_acum_anterior   (mismo % físico, una sola vez)
         monto_mes  = (pct_mes / 100) * total_item
         monto_acum = (pct_acum_nuevo / 100) * total_item
         saldo      = total_item - monto_acum
-    total_item queda "congelado" (snapshot) al momento del certificado,
+    Los total_item quedan "congelados" (snapshot) al momento del certificado,
     para que cambios posteriores de precio no alteren certificados pasados.
     """
     __tablename__ = "certificado_items"
@@ -171,15 +175,21 @@ class CertificadoItem(Base):
     certificado_id      = Column(Integer, ForeignKey("certificados_avance.id"), nullable=False)
     item_id             = Column(Integer, ForeignKey("items_obra.id"), nullable=False)
 
-    total_item_snapshot = Column(Numeric(14, 2), nullable=False, default=0)
-
     pct_acum_anterior   = Column(Numeric(6, 3), nullable=False, default=0)
     pct_acum_nuevo      = Column(Numeric(6, 3), nullable=False, default=0)
     pct_mes             = Column(Numeric(6, 3), nullable=False, default=0)
 
+    # Cuenta cliente (con costo empresa)
+    total_item_snapshot = Column(Numeric(14, 2), nullable=False, default=0)
     monto_mes           = Column(Numeric(14, 2), nullable=False, default=0)
     monto_acum          = Column(Numeric(14, 2), nullable=False, default=0)
     saldo               = Column(Numeric(14, 2), nullable=False, default=0)
+
+    # Cuenta albañil (sin costo empresa)
+    total_item_snapshot_albanil = Column(Numeric(14, 2), nullable=False, default=0)
+    monto_mes_albanil           = Column(Numeric(14, 2), nullable=False, default=0)
+    monto_acum_albanil          = Column(Numeric(14, 2), nullable=False, default=0)
+    saldo_albanil                = Column(Numeric(14, 2), nullable=False, default=0)
 
     certificado         = relationship("CertificadoAvance", back_populates="items")
     item                = relationship("ItemObra")
