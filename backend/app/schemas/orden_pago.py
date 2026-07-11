@@ -2,14 +2,14 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
-from app.models.orden_pago import FormaPago, EstadoOrdenPago
+from app.models.orden_pago import FormaPagoOP, EstadoOrdenPago
 
 
 class OrdenPagoBase(BaseModel):
     destinatario   : str
     concepto       : str
     monto          : Decimal
-    forma_pago     : FormaPago
+    forma_pago     : FormaPagoOP
     referencia     : Optional[str] = None
     notas          : Optional[str] = None
     proyecto_id    : Optional[int] = None
