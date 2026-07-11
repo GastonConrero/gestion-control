@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../../utils/api'
 
-const EMPTY_ITEM = { orden: '', designacion: '', unidad: '', cantidad: '', precio_unitario: '' }
+const EMPTY_ITEM = { orden: '', designacion: '', unidad: '', cantidad: '', precio_unitario: '', precio_unitario_albanil: '' }
 
 function fmt(n) {
   if (n === null || n === undefined) return '—'
@@ -65,7 +65,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
     setErrorModal(''); setModalItem('crear')
   }
   const abrirEditarItem = (i) => {
-    setFormItem({ orden: i.orden ?? '', designacion: i.designacion, unidad: i.unidad || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario })
+    setFormItem({ orden: i.orden ?? '', designacion: i.designacion, unidad: i.unidad || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario, precio_unitario_albanil: i.precio_unitario_albanil })
     setErrorModal(''); setModalItem(i)
   }
   const cerrarItem = () => { setModalItem(null); setErrorModal('') }
@@ -80,6 +80,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
         unidad: formItem.unidad || null,
         cantidad: formItem.cantidad === '' ? 0 : Number(formItem.cantidad),
         precio_unitario: formItem.precio_unitario === '' ? 0 : Number(formItem.precio_unitario),
+        precio_unitario_albanil: formItem.precio_unitario_albanil === '' ? 0 : Number(formItem.precio_unitario_albanil),
       }
       if (modalItem === 'crear') {
         await api.post(`/api/clientes/${clienteId}/obras/${obraId}/items`, payload)
@@ -155,41 +156,87 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
 
       {/* Resumen */}
       {resumen && (
-        <div style={s.resumenGrid}>
-          <div style={s.resumenCard}>
-            <div style={s.resumenLabel}>Presupuesto base</div>
-            <div style={s.resumenValor}>{fmt(resumen.presupuesto_base)}</div>
+        <>
+          <div style={s.cuentaLabel}>Cuenta cliente</div>
+          <div style={s.resumenGrid}>
+            <div style={s.resumenCard}>
+              <div style={s.resumenLabel}>Presupuesto base</div>
+              <div style={s.resumenValor}>{fmt(resumen.presupuesto_base)}</div>
+            </div>
+            <div style={s.resumenCard}>
+              <div style={s.resumenLabel}>Ajuste IPC acumulado</div>
+              <div style={s.resumenValor}>{esGaston ? fmt(resumen.ajuste_ipc_acumulado) : '—'}</div>
+            </div>
+            <div style={s.resumenCard}>
+              <div style={s.resumenLabel}>Total actualizado</div>
+              <div style={s.resumenValor}>{esGaston ? fmt(resumen.total_actualizado) : fmt(resumen.presupuesto_base)}</div>
+            </div>
+            <div style={s.resumenCard}>
+              <div style={s.resumenLabel}>Ejecución acumulada</div>
+              <div style={{ ...s.resumenValor, color: '#D4502A' }}>{fmt(resumen.ejecucion_acumulada)}</div>
+            </div>
+            <div style={s.resumenCard}>
+              <div style={s.resumenLabel}>Saldo pendiente</div>
+              <div style={s.resumenValor}>{esGaston ? fmt(resumen.saldo_pendiente) : '—'}</div>
+            </div>
           </div>
-          <div style={s.resumenCard}>
-            <div style={s.resumenLabel}>Ajuste IPC acumulado</div>
-            <div style={s.resumenValor}>{esGaston ? fmt(resumen.ajuste_ipc_acumulado) : '—'}</div>
-          </div>
-          <div style={s.resumenCard}>
-            <div style={s.resumenLabel}>Total actualizado</div>
-            <div style={s.resumenValor}>{esGaston ? fmt(resumen.total_actualizado) : fmt(resumen.presupuesto_base)}</div>
-          </div>
-          <div style={s.resumenCard}>
-            <div style={s.resumenLabel}>Ejecución acumulada</div>
-            <div style={{ ...s.resumenValor, color: '#D4502A' }}>{fmt(resumen.ejecucion_acumulada)}</div>
-          </div>
-          <div style={s.resumenCard}>
-            <div style={s.resumenLabel}>Saldo pendiente</div>
-            <div style={s.resumenValor}>{esGaston ? fmt(resumen.saldo_pendiente) : '—'}</div>
-          </div>
-        </div>
+
+          {esGaston && (
+            <>
+              <div style={s.cuentaLabel}>Cuenta albañil</div>
+              <div style={s.resumenGrid}>
+                <div style={s.resumenCard}>
+                  <div style={s.resumenLabel}>Presupuesto base</div>
+                  <div style={s.resumenValor}>{fmt(resumen.presupuesto_base_albanil)}</div>
+                </div>
+                <div style={s.resumenCard}>
+                  <div style={s.resumenLabel}>Ajuste IPC acumulado</div>
+                  <div style={s.resumenValor}>{fmt(resumen.ajuste_ipc_acumulado_albanil)}</div>
+                </div>
+                <div style={s.resumenCard}>
+                  <div style={s.resumenLabel}>Total actualizado</div>
+                  <div style={s.resumenValor}>{fmt(resumen.total_actualizado_albanil)}</div>
+                </div>
+                <div style={s.resumenCard}>
+                  <div style={s.resumenLabel}>Ejecución acumulada</div>
+                  <div style={{ ...s.resumenValor, color: '#D4502A' }}>{fmt(resumen.ejecucion_acumulada_albanil)}</div>
+                </div>
+                <div style={s.resumenCard}>
+                  <div style={s.resumenLabel}>Saldo pendiente</div>
+                  <div style={s.resumenValor}>{fmt(resumen.saldo_pendiente_albanil)}</div>
+                </div>
+              </div>
+            </>
+          )}
+        </>
       )}
 
       {/* Curva ejecutado vs pagos */}
       {curva && curva.puntos.length > 0 && (
         <div style={s.curvaBox}>
+          <div style={s.cuentaLabel}>Curva — cuenta cliente</div>
           {curva.alerta && (
             <div style={s.alertaCurva}>⚠️ En algún mes el cliente pagó más de lo ejecutado.</div>
           )}
-          <CurvaSVG puntos={curva.puntos} mostrarPagos={esGaston} />
+          <CurvaSVG puntos={curva.puntos} campoEjecutado="ejecutado_acum" campoPagos="pagos_acum" mostrarPagos={esGaston} />
           <div style={s.curvaLeyenda}>
             <span><span style={{ ...s.leyendaLinea, background: '#D4502A' }} /> Ejecutado</span>
             {esGaston && <span><span style={{ ...s.leyendaLinea, background: '#999', borderStyle: 'dashed' }} /> Pagos</span>}
           </div>
+
+          {esGaston && (
+            <>
+              <div style={{ ...s.cuentaLabel, marginTop: 20 }}>Curva — cuenta albañil</div>
+              {curva.alerta_albanil && (
+                <div style={s.alertaCurva}>⚠️ En algún mes se le pagó al albañil más de lo ejecutado.</div>
+              )}
+              <CurvaSVG puntos={curva.puntos} campoEjecutado="ejecutado_acum_albanil" campoPagos="pagos_acum_albanil" mostrarPagos={true} />
+              <div style={s.curvaLeyenda}>
+                <span><span style={{ ...s.leyendaLinea, background: '#D4502A' }} /> Ejecutado</span>
+                <span><span style={{ ...s.leyendaLinea, background: '#999', borderStyle: 'dashed' }} /> Pagos</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -207,10 +254,14 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
               <div key={i.id} style={s.itemCard}>
                 <div style={s.itemInfo}>
                   <span style={s.itemDesignacion}>{i.designacion}</span>
-                  <span style={s.itemDetalle}>{fmtCantidad(i.cantidad)} {i.unidad || ''} × {fmt(i.precio_unitario)}</span>
+                  <span style={s.itemDetalle}>{fmtCantidad(i.cantidad)} {i.unidad || ''} × {fmt(i.precio_unitario)} (cliente)</span>
+                  {esGaston && (
+                    <span style={s.itemDetalle}>{fmtCantidad(i.cantidad)} {i.unidad || ''} × {fmt(i.precio_unitario_albanil)} (albañil)</span>
+                  )}
                 </div>
                 <div style={s.itemDerecha}>
                   <span style={s.itemTotal}>{fmt(i.total)}</span>
+                  {esGaston && <span style={s.itemTotalAlbanil}>{fmt(i.total_albanil)} albañil</span>}
                   {esGaston && (
                     <div style={s.itemAcciones}>
                       <button onClick={() => abrirEditarItem(i)} style={s.btnMini}>Editar</button>
@@ -243,7 +294,8 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
                   </div>
                   <div style={s.certDerecha}>
                     <div style={s.certMonto}>{fmt(c.ejecucion_acum)}</div>
-                    <div style={s.certMontoLabel}>ejecución acumulada</div>
+                    <div style={s.certMontoLabel}>ejecución acumulada{esGaston ? ' (cliente)' : ''}</div>
+                    {esGaston && <div style={s.certMontoAlbanil}>{fmt(c.ejecucion_acum_albanil)} (albañil)</div>}
                   </div>
                 </div>
                 {certAbierto === c.id && (
@@ -252,7 +304,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
                       <div key={ci.id} style={s.certItemFila}>
                         <span style={s.certItemNombre}>{ci.designacion}</span>
                         <span style={s.certItemPct}>{fmtPct(ci.pct_acum_anterior)} → {fmtPct(ci.pct_acum_nuevo)} ({ci.pct_mes >= 0 ? '+' : ''}{fmtPct(ci.pct_mes)})</span>
-                        <span style={s.certItemMonto}>{fmt(ci.monto_mes)} este mes</span>
+                        <span style={s.certItemMonto}>{fmt(ci.monto_mes)} este mes (cliente){esGaston ? ` · ${fmt(ci.monto_mes_albanil)} (albañil)` : ''}</span>
                       </div>
                     ))}
                     {esGaston && (
@@ -301,9 +353,14 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
                     onChange={e => setFormItem({ ...formItem, cantidad: e.target.value })} />
                 </div>
                 <div>
-                  <label style={s.label}>Precio unitario ($)</label>
+                  <label style={s.label}>Precio unitario — cliente ($)</label>
                   <input type="number" style={s.input} value={formItem.precio_unitario}
                     onChange={e => setFormItem({ ...formItem, precio_unitario: e.target.value })} />
+                </div>
+                <div>
+                  <label style={s.label}>Precio unitario — albañil ($)</label>
+                  <input type="number" style={s.input} value={formItem.precio_unitario_albanil}
+                    onChange={e => setFormItem({ ...formItem, precio_unitario_albanil: e.target.value })} />
                 </div>
               </div>
               {errorModal && <div style={s.errorMsg}>{errorModal}</div>}
@@ -370,19 +427,19 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
 }
 
 // ── Curva SVG (ejecutado sólido naranja / pagos punteado gris) ───────────────
-function CurvaSVG({ puntos, mostrarPagos }) {
+function CurvaSVG({ puntos, campoEjecutado, campoPagos, mostrarPagos }) {
   const W = 600, H = 220, PAD = 36
   const maxVal = Math.max(
     1,
-    ...puntos.map(p => Number(p.ejecutado_acum)),
-    ...(mostrarPagos ? puntos.map(p => Number(p.pagos_acum)) : [0])
+    ...puntos.map(p => Number(p[campoEjecutado])),
+    ...(mostrarPagos ? puntos.map(p => Number(p[campoPagos])) : [0])
   )
   const stepX = puntos.length > 1 ? (W - PAD * 2) / (puntos.length - 1) : 0
   const x = idx => PAD + idx * stepX
   const y = val => H - PAD - (val / maxVal) * (H - PAD * 2)
 
-  const lineaEjecutado = puntos.map((p, i) => `${x(i)},${y(Number(p.ejecutado_acum))}`).join(' ')
-  const lineaPagos = puntos.map((p, i) => `${x(i)},${y(Number(p.pagos_acum))}`).join(' ')
+  const lineaEjecutado = puntos.map((p, i) => `${x(i)},${y(Number(p[campoEjecutado]))}`).join(' ')
+  const lineaPagos = puntos.map((p, i) => `${x(i)},${y(Number(p[campoPagos]))}`).join(' ')
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', maxWidth: 600 }}>
@@ -397,8 +454,8 @@ function CurvaSVG({ puntos, mostrarPagos }) {
 
       {puntos.map((p, i) => (
         <g key={i}>
-          <circle cx={x(i)} cy={y(Number(p.ejecutado_acum))} r="3.5" fill="#D4502A" />
-          {mostrarPagos && <circle cx={x(i)} cy={y(Number(p.pagos_acum))} r="3" fill="#999" />}
+          <circle cx={x(i)} cy={y(Number(p[campoEjecutado]))} r="3.5" fill="#D4502A" />
+          {mostrarPagos && <circle cx={x(i)} cy={y(Number(p[campoPagos]))} r="3" fill="#999" />}
           <text x={x(i)} y={H - PAD + 16} fontSize="9" fill="#999" textAnchor="middle">
             {p.periodo.length > 8 ? p.periodo.slice(0, 3) : p.periodo}
           </text>
@@ -415,6 +472,7 @@ const s = {
   subseccion:       { marginTop: 20 },
   subTitulo:        { fontSize: 12, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.03em' },
   resumenGrid:      { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 },
+  cuentaLabel:      { fontSize: 11, fontWeight: 700, color: '#D4502A', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 8 },
   resumenCard:      { background: '#f9f9f9', borderRadius: 4, padding: '10px 14px' },
   resumenLabel:     { fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 },
   resumenValor:     { fontSize: 15, fontWeight: 700, color: '#111' },
@@ -429,6 +487,7 @@ const s = {
   itemDetalle:      { fontSize: 11, color: '#999', marginTop: 2 },
   itemDerecha:      { display: 'flex', alignItems: 'center', gap: 10 },
   itemTotal:        { fontSize: 13, fontWeight: 700, color: '#111' },
+  itemTotalAlbanil: { fontSize: 11, color: '#999' },
   itemAcciones:     { display: 'flex', gap: 4 },
   certLista:        { display: 'flex', flexDirection: 'column', gap: 8 },
   certCard:         { border: '1px solid #eee', borderRadius: 4, overflow: 'hidden' },
@@ -438,6 +497,7 @@ const s = {
   certDerecha:      { textAlign: 'right' },
   certMonto:        { fontSize: 14, fontWeight: 700, color: '#D4502A' },
   certMontoLabel:   { fontSize: 10, color: '#999' },
+  certMontoAlbanil: { fontSize: 11, color: '#999', marginTop: 2 },
   certDetalle:      { padding: '10px 14px', borderTop: '1px solid #f2f2f2' },
   certItemFila:     { display: 'flex', flexDirection: 'column', padding: '5px 0', borderBottom: '1px solid #f7f7f7', fontSize: 12 },
   certItemNombre:   { fontWeight: 600, color: '#111' },
