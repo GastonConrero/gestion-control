@@ -115,3 +115,96 @@ class AjusteIPCOut(BaseModel):
 
 class VincularPresupuesto(BaseModel):
     presupuesto_id: int
+
+
+# ── Ítems (cómputo) ──────────────────────────────────────────────────────────
+
+class ItemBase(BaseModel):
+    orden           : Optional[int] = 0
+    designacion     : str
+    unidad          : Optional[str] = None
+    cantidad        : Decimal = Decimal("0")
+    precio_unitario : Decimal = Decimal("0")
+
+
+class ItemCreate(ItemBase):
+    pass
+
+
+class ItemUpdate(BaseModel):
+    orden           : Optional[int] = None
+    designacion     : Optional[str] = None
+    unidad          : Optional[str] = None
+    cantidad        : Optional[Decimal] = None
+    precio_unitario : Optional[Decimal] = None
+
+
+class ItemOut(ItemBase):
+    id      : int
+    obra_id : int
+    total   : Decimal  # cantidad * precio_unitario
+
+    model_config = {"from_attributes": True}
+
+
+# ── Certificado de avance ────────────────────────────────────────────────────
+
+class ItemPct(BaseModel):
+    item_id        : int
+    pct_acum_nuevo : Decimal
+
+
+class CertificadoCreate(BaseModel):
+    periodo           : str
+    fecha_certificado : Optional[date] = None
+    items             : List[ItemPct]
+
+
+class CertificadoItemOut(BaseModel):
+    id                  : int
+    item_id             : int
+    designacion         : Optional[str] = None
+    unidad              : Optional[str] = None
+    total_item_snapshot : Decimal
+    pct_acum_anterior   : Decimal
+    pct_acum_nuevo      : Decimal
+    pct_mes             : Decimal
+    monto_mes           : Decimal
+    monto_acum          : Decimal
+    saldo               : Decimal
+
+    model_config = {"from_attributes": True}
+
+
+class CertificadoOut(BaseModel):
+    id                : int
+    obra_id           : int
+    numero            : int
+    periodo           : str
+    fecha_certificado : Optional[date] = None
+    created_at        : Optional[datetime] = None
+    ejecucion_mes     : Optional[Decimal] = None
+    ejecucion_acum    : Optional[Decimal] = None
+    items             : List[CertificadoItemOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class ResumenCertificados(BaseModel):
+    presupuesto_base    : Decimal
+    ajuste_ipc_acumulado: Decimal
+    total_actualizado   : Decimal
+    ejecucion_acumulada : Decimal
+    saldo_pendiente     : Decimal
+
+
+class PuntoCurva(BaseModel):
+    periodo          : str
+    fecha            : Optional[date] = None
+    ejecutado_acum   : Decimal
+    pagos_acum       : Decimal
+
+
+class CurvaOut(BaseModel):
+    puntos : List[PuntoCurva]
+    alerta : bool  # True si en algún punto pagos_acum > ejecutado_acum
