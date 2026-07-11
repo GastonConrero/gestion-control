@@ -7,13 +7,19 @@ from datetime import date
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.obra import Obra, CronogramaCuota, AjusteIPCHistorial, EstadoCuota
+from app.models.obra import (
+    Obra, CronogramaCuota, AjusteIPCHistorial, EstadoCuota,
+    ItemObra, CertificadoAvance, CertificadoItem,
+)
 from app.models.cliente import Cliente
 from app.models.presupuesto import Presupuesto
 from app.schemas.obra import (
     ObraCreate, ObraUpdate, ObraOut,
     CuotaCreate, CuotaUpdate, CuotaOut, PagarCuota, AjustarIPC, AjusteIPCOut,
     VincularPresupuesto,
+    ItemCreate, ItemUpdate, ItemOut,
+    CertificadoCreate, CertificadoOut, CertificadoItemOut,
+    ResumenCertificados, CurvaOut, PuntoCurva,
 )
 
 router = APIRouter(prefix="/api/clientes/{cliente_id}/obras", tags=["obras"])
@@ -334,3 +340,321 @@ def historial_ipc(
         .order_by(AjusteIPCHistorial.created_at.desc())
         .all()
     )
+
+
+# ── Ítems del cómputo ─────────────────────────────────────────────────────────
+
+def _item_out(i: ItemObra) -> dict:
+    d = {c.name: getattr(i, c.name) for c in i.__table__.columns}
+    d["total"] = i.cantidad * i.precio_unitario
+    return d
+
+
+@router.get("/{obra_id}/items", response_model=List[ItemOut])
+def listar_items(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
+    items = db.query(ItemObra).filter(ItemObra.obra_id == o.id).order_by(ItemObra.orden).all()
+    return [_item_out(i) for i in items]
+
+
+@router.post("/{obra_id}/items", response_model=ItemOut)
+def crear_item(
+    cliente_id: int,
+    obra_id: int,
+    datos: ItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    i = ItemObra(obra_id=o.id, **datos.model_dump())
+    db.add(i)
+    db.commit()
+    db.refresh(i)
+    return _item_out(i)
+
+
+@router.put("/{obra_id}/items/{item_id}", response_model=ItemOut)
+def actualizar_item(
+    cliente_id: int,
+    obra_id: int,
+    item_id: int,
+    datos: ItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    i = db.query(ItemObra).filter(ItemObra.id == item_id, ItemObra.obra_id == obra_id).first()
+    if not i:
+        raise HTTPException(status_code=404, detail="Ítem no encontrado")
+    for k, v in datos.model_dump(exclude_unset=True).items():
+        setattr(i, k, v)
+    db.commit()
+    db.refresh(i)
+    return _item_out(i)
+
+
+@router.delete("/{obra_id}/items/{item_id}")
+def eliminar_item(
+    cliente_id: int,
+    obra_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    i = db.query(ItemObra).filter(ItemObra.id == item_id, ItemObra.obra_id == obra_id).first()
+    if not i:
+        raise HTTPException(status_code=404, detail="Ítem no encontrado")
+    db.delete(i)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Certificados de avance ────────────────────────────────────────────────────
+
+def _certificado_out(cert: CertificadoAvance) -> dict:
+    items_out = []
+    ejecucion_mes = Decimal("0")
+    ejecucion_acum = Decimal("0")
+    for ci in cert.items:
+        items_out.append({
+            "id": ci.id,
+            "item_id": ci.item_id,
+            "designacion": ci.item.designacion if ci.item else None,
+            "unidad": ci.item.unidad if ci.item else None,
+            "total_item_snapshot": ci.total_item_snapshot,
+            "pct_acum_anterior": ci.pct_acum_anterior,
+            "pct_acum_nuevo": ci.pct_acum_nuevo,
+            "pct_mes": ci.pct_mes,
+            "monto_mes": ci.monto_mes,
+            "monto_acum": ci.monto_acum,
+            "saldo": ci.saldo,
+        })
+        ejecucion_mes += ci.monto_mes
+        ejecucion_acum += ci.monto_acum
+
+    return {
+        "id": cert.id,
+        "obra_id": cert.obra_id,
+        "numero": cert.numero,
+        "periodo": cert.periodo,
+        "fecha_certificado": cert.fecha_certificado,
+        "created_at": cert.created_at,
+        "ejecucion_mes": ejecucion_mes,
+        "ejecucion_acum": ejecucion_acum,
+        "items": items_out,
+    }
+
+
+@router.get("/{obra_id}/certificados", response_model=List[CertificadoOut])
+def listar_certificados(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
+    certs = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .order_by(CertificadoAvance.numero)
+        .all()
+    )
+    return [_certificado_out(c) for c in certs]
+
+
+@router.post("/{obra_id}/certificados", response_model=CertificadoOut)
+def crear_certificado(
+    cliente_id: int,
+    obra_id: int,
+    datos: CertificadoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Carga el % acumulado de cada ítem para este período. El sistema calcula
+    automáticamente el % del mes, $ del mes, $ acumulado y saldo (sección 4.6).
+    Lo pueden cargar Gastón, Valentina o Valentín.
+    """
+    o = _get_obra(db, cliente_id, obra_id)
+    if not datos.items:
+        raise HTTPException(status_code=400, detail="Cargá el % de al menos un ítem")
+
+    numero = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .count()
+    ) + 1
+
+    cert = CertificadoAvance(
+        obra_id=o.id, numero=numero, periodo=datos.periodo,
+        fecha_certificado=datos.fecha_certificado,
+    )
+    db.add(cert)
+    db.flush()  # para tener cert.id antes del commit
+
+    for entrada in datos.items:
+        item = db.query(ItemObra).filter(
+            ItemObra.id == entrada.item_id, ItemObra.obra_id == o.id
+        ).first()
+        if not item:
+            db.rollback()
+            raise HTTPException(status_code=404, detail=f"Ítem {entrada.item_id} no encontrado en esta obra")
+
+        ultimo = (
+            db.query(CertificadoItem)
+            .join(CertificadoAvance, CertificadoItem.certificado_id == CertificadoAvance.id)
+            .filter(CertificadoItem.item_id == item.id, CertificadoAvance.obra_id == o.id)
+            .order_by(CertificadoAvance.numero.desc())
+            .first()
+        )
+        pct_acum_anterior = ultimo.pct_acum_nuevo if ultimo else Decimal("0")
+        pct_acum_nuevo = entrada.pct_acum_nuevo
+        pct_mes = pct_acum_nuevo - pct_acum_anterior
+
+        total_item = item.cantidad * item.precio_unitario
+        monto_mes = (pct_mes / Decimal("100")) * total_item
+        monto_acum = (pct_acum_nuevo / Decimal("100")) * total_item
+        saldo = total_item - monto_acum
+
+        db.add(CertificadoItem(
+            certificado_id=cert.id, item_id=item.id,
+            total_item_snapshot=total_item,
+            pct_acum_anterior=pct_acum_anterior, pct_acum_nuevo=pct_acum_nuevo, pct_mes=pct_mes,
+            monto_mes=monto_mes, monto_acum=monto_acum, saldo=saldo,
+        ))
+
+    db.commit()
+    db.refresh(cert)
+    return _certificado_out(cert)
+
+
+@router.get("/{obra_id}/certificados/{certificado_id}", response_model=CertificadoOut)
+def obtener_certificado(
+    cliente_id: int,
+    obra_id: int,
+    certificado_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_obra(db, cliente_id, obra_id)
+    cert = db.query(CertificadoAvance).filter(
+        CertificadoAvance.id == certificado_id, CertificadoAvance.obra_id == obra_id
+    ).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+    return _certificado_out(cert)
+
+
+@router.delete("/{obra_id}/certificados/{certificado_id}")
+def eliminar_certificado(
+    cliente_id: int,
+    obra_id: int,
+    certificado_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    cert = db.query(CertificadoAvance).filter(
+        CertificadoAvance.id == certificado_id, CertificadoAvance.obra_id == obra_id
+    ).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+    db.delete(cert)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Resumen y curva ejecutado vs pagos ────────────────────────────────────────
+
+@router.get("/{obra_id}/resumen-certificados", response_model=ResumenCertificados)
+def resumen_certificados(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
+
+    presupuesto_base = sum((i.cantidad * i.precio_unitario for i in o.items_computo), Decimal("0"))
+    ajuste_ipc_acumulado = sum((c.ajuste_ipc_cliente for c in o.cronograma), Decimal("0"))
+    total_actualizado = presupuesto_base + ajuste_ipc_acumulado
+
+    ultimo_cert = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .order_by(CertificadoAvance.numero.desc())
+        .first()
+    )
+    ejecucion_acumulada = Decimal("0")
+    if ultimo_cert:
+        ejecucion_acumulada = sum((ci.monto_acum for ci in ultimo_cert.items), Decimal("0"))
+
+    saldo_pendiente = total_actualizado - ejecucion_acumulada
+
+    return {
+        "presupuesto_base": presupuesto_base,
+        "ajuste_ipc_acumulado": ajuste_ipc_acumulado,
+        "total_actualizado": total_actualizado,
+        "ejecucion_acumulada": ejecucion_acumulada,
+        "saldo_pendiente": saldo_pendiente,
+    }
+
+
+@router.get("/{obra_id}/curva", response_model=CurvaOut)
+def curva_ejecutado_vs_pagos(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Serie temporal para graficar Ejecutado (certificados) vs Pagos acumulados
+    (cronograma). Alerta si en algún punto los pagos superan lo ejecutado
+    (sección 4.8): "El cliente pagó más de lo ejecutado".
+    """
+    o = _get_obra(db, cliente_id, obra_id)
+    certs = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .order_by(CertificadoAvance.numero)
+        .all()
+    )
+
+    puntos = []
+    alerta = False
+    for cert in certs:
+        ejecutado_acum = sum((ci.monto_acum for ci in cert.items), Decimal("0"))
+
+        if cert.fecha_certificado:
+            pagos_acum = sum(
+                (c.monto_pagado_cliente or Decimal("0"))
+                for c in o.cronograma
+                if c.estado == EstadoCuota.pagada and c.fecha_pago and c.fecha_pago <= cert.fecha_certificado
+            )
+        else:
+            pagos_acum = sum(
+                (c.monto_pagado_cliente or Decimal("0"))
+                for c in o.cronograma if c.estado == EstadoCuota.pagada
+            )
+
+        if pagos_acum > ejecutado_acum:
+            alerta = True
+
+        puntos.append({
+            "periodo": cert.periodo,
+            "fecha": cert.fecha_certificado,
+            "ejecutado_acum": ejecutado_acum,
+            "pagos_acum": pagos_acum,
+        })
+
+    return {"puntos": puntos, "alerta": alerta}
