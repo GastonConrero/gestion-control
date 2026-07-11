@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
+import PlanificacionSemanal from './PlanificacionSemanal'
 
 function fmtMoneda(n) {
   if (n === null || n === undefined) return '—'
@@ -58,6 +59,8 @@ export default function Inicio() {
           </div>
         ))}
       </div>
+
+      <PlanificacionSemanal />
 
       {!loading && data?.financiero && (
         <div style={styles.finGrid}>
