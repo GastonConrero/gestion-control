@@ -13,6 +13,11 @@ function fmtPct(n) {
   return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 1 }) + '%'
 }
 
+function fmtCantidad(n) {
+  if (n === null || n === undefined) return '—'
+  return Number(n).toLocaleString('es-AR', { maximumFractionDigits: 3 })
+}
+
 function fmtFecha(iso) {
   if (!iso) return '—'
   return new Date(iso + 'T00:00:00').toLocaleDateString('es-AR')
@@ -202,7 +207,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
               <div key={i.id} style={s.itemCard}>
                 <div style={s.itemInfo}>
                   <span style={s.itemDesignacion}>{i.designacion}</span>
-                  <span style={s.itemDetalle}>{i.cantidad} {i.unidad || ''} × {fmt(i.precio_unitario)}</span>
+                  <span style={s.itemDetalle}>{fmtCantidad(i.cantidad)} {i.unidad || ''} × {fmt(i.precio_unitario)}</span>
                 </div>
                 <div style={s.itemDerecha}>
                   <span style={s.itemTotal}>{fmt(i.total)}</span>
