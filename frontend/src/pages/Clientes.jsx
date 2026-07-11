@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import ListaProyectos from './proyectos/ListaProyectos'
+import ListaObras from './obras/ListaObras'
 
 const CAMPOS = [
   { key: 'apellido',  label: 'Apellido',  required: true },
@@ -117,7 +118,7 @@ export default function Clientes() {
             </div>
             <div style={st.tabContenido}>
               {tabActivo === 'proyectos' && <ListaProyectos clienteId={clienteAbierto.id} rol={rol} />}
-              {tabActivo === 'obras'      && <div style={st.proximamente}>Módulo de Obras — próximamente</div>}
+              {tabActivo === 'obras'      && <ListaObras clienteId={clienteAbierto.id} rol={rol} />}
               {tabActivo === 'documentos' && <div style={st.proximamente}>Módulo de Documentos — próximamente</div>}
               {tabActivo === 'actividad'  && <div style={st.proximamente}>Historial de actividad — próximamente</div>}
             </div>
