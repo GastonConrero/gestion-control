@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../../utils/api'
 import CertificadosAvance from './CertificadosAvance'
+import InformeMensual from './InformeMensual'
 
 const ESTADOS_OBRA = {
   en_curso:  { label: 'En curso',  color: '#D4502A', bg: '#fff4f1' },
@@ -309,6 +310,8 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
       )}
 
       <CertificadosAvance clienteId={clienteId} obraId={obraId} rol={rol} />
+
+      <InformeMensual clienteId={clienteId} obraId={obraId} />
 
 
       {/* Modal: nueva cuota */}
