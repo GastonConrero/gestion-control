@@ -56,6 +56,14 @@ export default function OrdenesPago() {
   useEffect(() => { cargar() }, [filtroEstado])
   useEffect(() => { cargarProyectos() }, [])
 
+  // Cerrar el modal con Escape
+  useEffect(() => {
+    if (!modalAbierto) return
+    const onKeyDown = (e) => { if (e.key === 'Escape') cerrar() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [modalAbierto])
+
   const abrirCrear = () => { setForm(EMPTY); setError(''); setModalAbierto(true) }
   const cerrar = () => { setModalAbierto(false); setError('') }
 
@@ -186,7 +194,7 @@ export default function OrdenesPago() {
               <div style={s.grid}>
                 <div style={s.fullWidth}>
                   <label style={s.label}>Destinatario <span style={{color:'#D4502A'}}>*</span></label>
-                  <input style={s.input} value={form.destinatario}
+                  <input style={s.input} value={form.destinatario} autoFocus
                     onChange={e => setForm({...form, destinatario: e.target.value})}
                     placeholder="Nombre de la persona o empresa" />
                 </div>
