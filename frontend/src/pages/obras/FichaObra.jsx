@@ -248,59 +248,56 @@ export default function FichaObra({ clienteId, obraId, rol, onVolver }) {
             {cronograma.length === 0 ? (
               <div style={s.empty}>Todavía no hay cuotas cargadas.</div>
             ) : (
-              <div style={s.tablaWrap}>
-                <table style={s.tabla}>
-                  <thead>
-                    <tr>
-                      <th style={s.th}>#</th>
-                      <th style={s.th}>Descripción</th>
-                      <th style={s.th}>Fecha prevista</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Cuenta cliente</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Ajuste IPC</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Saldo cliente</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Cuenta albañil</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Ajuste IPC</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Saldo albañil</th>
-                      <th style={s.th}>Estado</th>
-                      <th style={s.th}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cronograma.map(c => (
-                      <tr key={c.id} style={c.estado === 'pagada' ? s.filaPagada : {}}>
-                        <td style={s.td}>{c.numero}</td>
-                        <td style={s.td}>{c.descripcion || '—'}</td>
-                        <td style={s.td}>{fmtFecha(c.fecha_prevista)}</td>
-                        <td style={{ ...s.td, textAlign: 'right' }}>{fmt(c.monto_cliente)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', color: c.ajuste_ipc_cliente > 0 ? '#D4502A' : '#999' }}>
-                          {c.ajuste_ipc_cliente > 0 ? '+' + fmt(c.ajuste_ipc_cliente) : '—'}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 700 }}>{fmt(c.saldo_cliente)}</td>
-                        <td style={{ ...s.td, textAlign: 'right' }}>{fmt(c.monto_albanil)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', color: c.ajuste_ipc_albanil > 0 ? '#D4502A' : '#999' }}>
-                          {c.ajuste_ipc_albanil > 0 ? '+' + fmt(c.ajuste_ipc_albanil) : '—'}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 700 }}>{fmt(c.saldo_albanil)}</td>
-                        <td style={s.td}>
-                          <span style={{ ...s.estadoBadge, ...(c.estado === 'pagada' ? s.estadoPagada : s.estadoPendiente) }}>
-                            {c.estado === 'pagada' ? 'Pagada' : 'Pendiente'}
-                          </span>
-                        </td>
-                        <td style={s.td}>
-                          <div style={s.accionesFila}>
-                            {c.estado !== 'pagada' && (
-                              <>
-                                <button onClick={() => abrirIPC(c)} style={s.btnMini}>Ajustar IPC</button>
-                                <button onClick={() => abrirPago(c)} style={{ ...s.btnMini, color: '#16a34a' }}>Pagar</button>
-                              </>
-                            )}
-                            <button onClick={() => eliminarCuota(c.id)} style={{ ...s.btnMini, color: '#dc2626' }}>Eliminar</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={s.cuotasLista}>
+                {cronograma.map(c => (
+                  <div key={c.id} style={{ ...s.cuotaCard, ...(c.estado === 'pagada' ? s.cuotaCardPagada : {}) }}>
+                    <div style={s.cuotaHeader}>
+                      <div>
+                        <span style={s.cuotaNumero}>Cuota {c.numero}</span>
+                        {c.descripcion && <span style={s.cuotaDesc}> · {c.descripcion}</span>}
+                        <div style={s.cuotaFecha}>Prevista: {fmtFecha(c.fecha_prevista)}</div>
+                      </div>
+                      <span style={{ ...s.estadoBadge, ...(c.estado === 'pagada' ? s.estadoPagada : s.estadoPendiente) }}>
+                        {c.estado === 'pagada' ? 'Pagada' : 'Pendiente'}
+                      </span>
+                    </div>
+
+                    <div style={s.cuentasGrid}>
+                      <div style={s.cuentaBox}>
+                        <div style={s.cuentaTitulo}>Cuenta cliente</div>
+                        <div style={s.cuentaFila}><span>Base</span><span>{fmt(c.monto_cliente)}</span></div>
+                        {c.ajuste_ipc_cliente > 0 && (
+                          <div style={{ ...s.cuentaFila, color: '#D4502A' }}><span>Ajuste IPC</span><span>+{fmt(c.ajuste_ipc_cliente)}</span></div>
+                        )}
+                        <div style={s.cuentaFilaSaldo}><span>Saldo</span><span>{fmt(c.saldo_cliente)}</span></div>
+                        {c.estado === 'pagada' && (
+                          <div style={{ ...s.cuentaFila, color: '#16a34a' }}><span>Pagado</span><span>{fmt(c.monto_pagado_cliente)}</span></div>
+                        )}
+                      </div>
+                      <div style={s.cuentaBox}>
+                        <div style={s.cuentaTitulo}>Cuenta albañil</div>
+                        <div style={s.cuentaFila}><span>Base</span><span>{fmt(c.monto_albanil)}</span></div>
+                        {c.ajuste_ipc_albanil > 0 && (
+                          <div style={{ ...s.cuentaFila, color: '#D4502A' }}><span>Ajuste IPC</span><span>+{fmt(c.ajuste_ipc_albanil)}</span></div>
+                        )}
+                        <div style={s.cuentaFilaSaldo}><span>Saldo</span><span>{fmt(c.saldo_albanil)}</span></div>
+                        {c.estado === 'pagada' && (
+                          <div style={{ ...s.cuentaFila, color: '#16a34a' }}><span>Pagado</span><span>{fmt(c.monto_pagado_albanil)}</span></div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={s.cuotaAcciones}>
+                      {c.estado !== 'pagada' && (
+                        <>
+                          <button onClick={() => abrirIPC(c)} style={s.btnMini}>Ajustar IPC</button>
+                          <button onClick={() => abrirPago(c)} style={{ ...s.btnMini, color: '#16a34a', borderColor: '#16a34a' }}>Pagar</button>
+                        </>
+                      )}
+                      <button onClick={() => eliminarCuota(c.id)} style={{ ...s.btnMini, color: '#dc2626' }}>Eliminar</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             <div style={s.hintFormula}>
@@ -494,15 +491,22 @@ const s = {
   resumenLabel:     { fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 },
   resumenValor:     { fontSize: 17, fontWeight: 700, color: '#111' },
   btnPrimario:      { background: '#D4502A', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
-  tablaWrap:        { overflowX: 'auto' },
-  tabla:            { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th:               { textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #eee', color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' },
-  td:               { padding: '8px 10px', borderBottom: '1px solid #f2f2f2', whiteSpace: 'nowrap' },
-  filaPagada:       { opacity: 0.55 },
+  cuotasLista:      { display: 'flex', flexDirection: 'column', gap: 10 },
+  cuotaCard:        { border: '1px solid #eee', borderRadius: 4, padding: '12px 14px' },
+  cuotaCardPagada:  { opacity: 0.6, background: '#fafafa' },
+  cuotaHeader:      { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  cuotaNumero:      { fontSize: 13, fontWeight: 700, color: '#111' },
+  cuotaDesc:        { fontSize: 13, color: '#666' },
+  cuotaFecha:       { fontSize: 11, color: '#999', marginTop: 2 },
+  cuentasGrid:      { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 },
+  cuentaBox:        { background: '#f9f9f9', borderRadius: 3, padding: '8px 10px' },
+  cuentaTitulo:     { fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 },
+  cuentaFila:       { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#555', padding: '1px 0' },
+  cuentaFilaSaldo:  { display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, color: '#111', padding: '3px 0 0', marginTop: 3, borderTop: '1px solid #e5e5e5' },
+  cuotaAcciones:    { display: 'flex', gap: 6, flexWrap: 'wrap' },
   estadoBadge:      { fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 },
   estadoPendiente:  { color: '#ca8a04', background: '#fefce8' },
   estadoPagada:     { color: '#16a34a', background: '#f0fdf4' },
-  accionesFila:     { display: 'flex', gap: 4 },
   btnMini:          { background: 'none', border: '1px solid #ddd', color: '#555', padding: '2px 8px', borderRadius: 3, cursor: 'pointer', fontSize: 11 },
   hintFormula:      { fontSize: 11, color: '#999', marginTop: 10 },
   empty:            { textAlign: 'center', color: '#aaa', padding: 30, background: '#fff', borderRadius: 4, border: '1px dashed #ddd', fontSize: 13 },
