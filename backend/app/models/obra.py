@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 import enum
+import uuid
 
 
 class EstadoObra(str, enum.Enum):
@@ -37,6 +38,10 @@ class Obra(Base):
     ipc_estimado_mensual  = Column(Numeric(5, 2), nullable=False, default=1.5)
 
     notas                 = Column(Text, nullable=True)
+
+    # Link único del Portal del Cliente (sección 4.15) — se genera la primera vez que se pide
+    token_portal          = Column(String, unique=True, index=True, nullable=True)
+
     created_at            = Column(DateTime(timezone=True), server_default=func.now())
     updated_at            = Column(DateTime(timezone=True), onupdate=func.now())
 
