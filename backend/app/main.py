@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos, recibo as recibos
-from app.models import user, cliente, proyecto, presupuesto, recibo  # noqa: F401
+from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos, recibo as recibos, orden_pago as ordenes_pago
+from app.models import user, cliente, proyecto, presupuesto, recibo, orden_pago  # noqa: F401
 from app.models.cliente import Cliente
 from app.models.proyecto import Proyecto
 from app.models.presupuesto import Presupuesto
@@ -42,6 +42,7 @@ app.include_router(setup.router)
 app.include_router(proyectos.router)
 app.include_router(presupuestos.router)
 app.include_router(recibos.router)
+app.include_router(ordenes_pago.router)
 
 @app.get("/")
 def root():
