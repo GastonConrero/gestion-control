@@ -347,6 +347,7 @@ def historial_ipc(
 def _item_out(i: ItemObra) -> dict:
     d = {c.name: getattr(i, c.name) for c in i.__table__.columns}
     d["total"] = i.cantidad * i.precio_unitario
+    d["total_albanil"] = i.cantidad * i.precio_unitario_albanil
     return d
 
 
@@ -424,22 +425,30 @@ def _certificado_out(cert: CertificadoAvance) -> dict:
     items_out = []
     ejecucion_mes = Decimal("0")
     ejecucion_acum = Decimal("0")
+    ejecucion_mes_albanil = Decimal("0")
+    ejecucion_acum_albanil = Decimal("0")
     for ci in cert.items:
         items_out.append({
             "id": ci.id,
             "item_id": ci.item_id,
             "designacion": ci.item.designacion if ci.item else None,
             "unidad": ci.item.unidad if ci.item else None,
-            "total_item_snapshot": ci.total_item_snapshot,
             "pct_acum_anterior": ci.pct_acum_anterior,
             "pct_acum_nuevo": ci.pct_acum_nuevo,
             "pct_mes": ci.pct_mes,
+            "total_item_snapshot": ci.total_item_snapshot,
             "monto_mes": ci.monto_mes,
             "monto_acum": ci.monto_acum,
             "saldo": ci.saldo,
+            "total_item_snapshot_albanil": ci.total_item_snapshot_albanil,
+            "monto_mes_albanil": ci.monto_mes_albanil,
+            "monto_acum_albanil": ci.monto_acum_albanil,
+            "saldo_albanil": ci.saldo_albanil,
         })
         ejecucion_mes += ci.monto_mes
         ejecucion_acum += ci.monto_acum
+        ejecucion_mes_albanil += ci.monto_mes_albanil
+        ejecucion_acum_albanil += ci.monto_acum_albanil
 
     return {
         "id": cert.id,
@@ -450,6 +459,8 @@ def _certificado_out(cert: CertificadoAvance) -> dict:
         "created_at": cert.created_at,
         "ejecucion_mes": ejecucion_mes,
         "ejecucion_acum": ejecucion_acum,
+        "ejecucion_mes_albanil": ejecucion_mes_albanil,
+        "ejecucion_acum_albanil": ejecucion_acum_albanil,
         "items": items_out,
     }
 
@@ -525,11 +536,17 @@ def crear_certificado(
         monto_acum = (pct_acum_nuevo / Decimal("100")) * total_item
         saldo = total_item - monto_acum
 
+        total_item_albanil = item.cantidad * item.precio_unitario_albanil
+        monto_mes_albanil = (pct_mes / Decimal("100")) * total_item_albanil
+        monto_acum_albanil = (pct_acum_nuevo / Decimal("100")) * total_item_albanil
+        saldo_albanil = total_item_albanil - monto_acum_albanil
+
         db.add(CertificadoItem(
             certificado_id=cert.id, item_id=item.id,
-            total_item_snapshot=total_item,
             pct_acum_anterior=pct_acum_anterior, pct_acum_nuevo=pct_acum_nuevo, pct_mes=pct_mes,
-            monto_mes=monto_mes, monto_acum=monto_acum, saldo=saldo,
+            total_item_snapshot=total_item, monto_mes=monto_mes, monto_acum=monto_acum, saldo=saldo,
+            total_item_snapshot_albanil=total_item_albanil, monto_mes_albanil=monto_mes_albanil,
+            monto_acum_albanil=monto_acum_albanil, saldo_albanil=saldo_albanil,
         ))
 
     db.commit()
@@ -589,6 +606,10 @@ def resumen_certificados(
     ajuste_ipc_acumulado = sum((c.ajuste_ipc_cliente for c in o.cronograma), Decimal("0"))
     total_actualizado = presupuesto_base + ajuste_ipc_acumulado
 
+    presupuesto_base_albanil = sum((i.cantidad * i.precio_unitario_albanil for i in o.items_computo), Decimal("0"))
+    ajuste_ipc_acumulado_albanil = sum((c.ajuste_ipc_albanil for c in o.cronograma), Decimal("0"))
+    total_actualizado_albanil = presupuesto_base_albanil + ajuste_ipc_acumulado_albanil
+
     ultimo_cert = (
         db.query(CertificadoAvance)
         .filter(CertificadoAvance.obra_id == o.id)
@@ -596,10 +617,13 @@ def resumen_certificados(
         .first()
     )
     ejecucion_acumulada = Decimal("0")
+    ejecucion_acumulada_albanil = Decimal("0")
     if ultimo_cert:
         ejecucion_acumulada = sum((ci.monto_acum for ci in ultimo_cert.items), Decimal("0"))
+        ejecucion_acumulada_albanil = sum((ci.monto_acum_albanil for ci in ultimo_cert.items), Decimal("0"))
 
     saldo_pendiente = total_actualizado - ejecucion_acumulada
+    saldo_pendiente_albanil = total_actualizado_albanil - ejecucion_acumulada_albanil
 
     return {
         "presupuesto_base": presupuesto_base,
@@ -607,6 +631,11 @@ def resumen_certificados(
         "total_actualizado": total_actualizado,
         "ejecucion_acumulada": ejecucion_acumulada,
         "saldo_pendiente": saldo_pendiente,
+        "presupuesto_base_albanil": presupuesto_base_albanil,
+        "ajuste_ipc_acumulado_albanil": ajuste_ipc_acumulado_albanil,
+        "total_actualizado_albanil": total_actualizado_albanil,
+        "ejecucion_acumulada_albanil": ejecucion_acumulada_albanil,
+        "saldo_pendiente_albanil": saldo_pendiente_albanil,
     }
 
 
@@ -619,8 +648,9 @@ def curva_ejecutado_vs_pagos(
 ):
     """
     Serie temporal para graficar Ejecutado (certificados) vs Pagos acumulados
-    (cronograma). Alerta si en algún punto los pagos superan lo ejecutado
-    (sección 4.8): "El cliente pagó más de lo ejecutado".
+    (cronograma), calculada en paralelo para cuenta cliente y cuenta albañil.
+    Alerta si en algún punto los pagos superan lo ejecutado (sección 4.8):
+    "El cliente pagó más de lo ejecutado" (o el equivalente para el albañil).
     """
     o = _get_obra(db, cliente_id, obra_id)
     certs = (
@@ -632,12 +662,19 @@ def curva_ejecutado_vs_pagos(
 
     puntos = []
     alerta = False
+    alerta_albanil = False
     for cert in certs:
         ejecutado_acum = sum((ci.monto_acum for ci in cert.items), Decimal("0"))
+        ejecutado_acum_albanil = sum((ci.monto_acum_albanil for ci in cert.items), Decimal("0"))
 
         if cert.fecha_certificado:
             pagos_acum = sum(
                 (c.monto_pagado_cliente or Decimal("0"))
+                for c in o.cronograma
+                if c.estado == EstadoCuota.pagada and c.fecha_pago and c.fecha_pago <= cert.fecha_certificado
+            )
+            pagos_acum_albanil = sum(
+                (c.monto_pagado_albanil or Decimal("0"))
                 for c in o.cronograma
                 if c.estado == EstadoCuota.pagada and c.fecha_pago and c.fecha_pago <= cert.fecha_certificado
             )
@@ -646,15 +683,23 @@ def curva_ejecutado_vs_pagos(
                 (c.monto_pagado_cliente or Decimal("0"))
                 for c in o.cronograma if c.estado == EstadoCuota.pagada
             )
+            pagos_acum_albanil = sum(
+                (c.monto_pagado_albanil or Decimal("0"))
+                for c in o.cronograma if c.estado == EstadoCuota.pagada
+            )
 
         if pagos_acum > ejecutado_acum:
             alerta = True
+        if pagos_acum_albanil > ejecutado_acum_albanil:
+            alerta_albanil = True
 
         puntos.append({
             "periodo": cert.periodo,
             "fecha": cert.fecha_certificado,
             "ejecutado_acum": ejecutado_acum,
             "pagos_acum": pagos_acum,
+            "ejecutado_acum_albanil": ejecutado_acum_albanil,
+            "pagos_acum_albanil": pagos_acum_albanil,
         })
 
-    return {"puntos": puntos, "alerta": alerta}
+    return {"puntos": puntos, "alerta": alerta, "alerta_albanil": alerta_albanil}
