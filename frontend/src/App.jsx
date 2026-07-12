@@ -9,6 +9,7 @@ import Recibos from './pages/recibos'
 import OrdenesPago from './pages/ordenes-pago'
 import PortalCliente from './pages/PortalCliente'
 import BancoPrecios from './pages/BancoPrecios'
+import Materiales from './pages/Materiales'
 
 function RutaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="recibos" element={<Recibos />} />
             <Route path="ordenes-pago" element={<OrdenesPago />} />
             <Route path="banco-precios" element={<BancoPrecios />} />
+            <Route path="materiales" element={<Materiales />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
