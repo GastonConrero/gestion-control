@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos, recibo as recibos, orden_pago as ordenes_pago, dashboard, obra as obras, tarea as tareas, informe, portal, banco_precios
-from app.models import user, cliente, proyecto, presupuesto, recibo, orden_pago, obra, tarea, informe as informe_models, banco_precios as banco_precios_models  # noqa: F401
+from app.api import auth, clientes, setup, proyectos, presupuesto as presupuestos, recibo as recibos, orden_pago as ordenes_pago, dashboard, obra as obras, tarea as tareas, informe, portal, banco_precios, materiales
+from app.models import user, cliente, proyecto, presupuesto, recibo, orden_pago, obra, tarea, informe as informe_models, banco_precios as banco_precios_models, materiales as materiales_models  # noqa: F401
 from app.models.cliente import Cliente
 from app.models.proyecto import Proyecto
 from app.models.presupuesto import Presupuesto
@@ -53,6 +53,7 @@ app.include_router(tareas.router)
 app.include_router(informe.router)
 app.include_router(portal.router)
 app.include_router(banco_precios.router)
+app.include_router(materiales.router)
 
 @app.get("/")
 def root():
