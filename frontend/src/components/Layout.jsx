@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { path: '/recibos', label: 'Recibos', icon: '🧾' },
   { path: '/ordenes-pago', label: 'Órdenes de Pago', icon: '💸' },
   { path: '/banco-precios', label: 'Banco de Precios', icon: '💲' },
+  { path: '/materiales', label: 'Materiales', icon: '📦' },
 ]
 
 export default function Layout() {
