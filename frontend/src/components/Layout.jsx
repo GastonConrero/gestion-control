@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { path: '/presupuestos', label: 'Presupuestos', icon: '📋' },
   { path: '/recibos', label: 'Recibos', icon: '🧾' },
   { path: '/ordenes-pago', label: 'Órdenes de Pago', icon: '💸' },
+  { path: '/banco-precios', label: 'Banco de Precios', icon: '💲' },
 ]
 
 export default function Layout() {
