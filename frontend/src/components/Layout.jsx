@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { path: '/ordenes-pago', label: 'Órdenes de Pago', icon: '💸' },
   { path: '/banco-precios', label: 'Banco de Precios', icon: '💲' },
   { path: '/materiales', label: 'Materiales', icon: '📦' },
+  { path: '/analisis-inversion', label: 'Análisis de Inversión', icon: '📊' },
 ]
 
 export default function Layout() {
