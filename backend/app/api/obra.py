@@ -13,6 +13,8 @@ from app.models.obra import (
 )
 from app.models.cliente import Cliente
 from app.models.presupuesto import Presupuesto
+from app.models.materiales import ListadoMateriales
+from app.models.analisis_inversion import AnalisisInversion
 from app.schemas.obra import (
     ObraCreate, ObraUpdate, ObraOut,
     CuotaCreate, CuotaUpdate, CuotaOut, PagarCuota, AjustarIPC, AjusteIPCOut,
@@ -157,8 +159,19 @@ def eliminar_obra(
 ):
     _solo_gaston(current_user)
     o = _get_obra(db, cliente_id, obra_id)
-    db.delete(o)
-    db.commit()
+
+    # Los listados de materiales y análisis de inversión son útiles por sí
+    # solos: se desvinculan de la obra en vez de borrarse junto con ella.
+    db.query(ListadoMateriales).filter(ListadoMateriales.obra_id == o.id).update({"obra_id": None})
+    db.query(AnalisisInversion).filter(AnalisisInversion.obra_id == o.id).update({"obra_id": None})
+
+    try:
+        db.delete(o)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"No se pudo eliminar la obra: {str(e)}")
+
     return {"ok": True}
 
 
