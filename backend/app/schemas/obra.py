@@ -120,7 +120,7 @@ class VincularPresupuesto(BaseModel):
 # ── Ítems (cómputo) ──────────────────────────────────────────────────────────
 
 class ItemBase(BaseModel):
-    orden                   : Optional[int] = 0
+    orden                   : Optional[str] = "0"
     designacion             : str
     unidad                  : Optional[str] = None
     cantidad                : Decimal = Decimal("0")
@@ -133,7 +133,7 @@ class ItemCreate(ItemBase):
 
 
 class ItemUpdate(BaseModel):
-    orden                   : Optional[int] = None
+    orden                   : Optional[str] = None
     designacion             : Optional[str] = None
     unidad                  : Optional[str] = None
     cantidad                : Optional[Decimal] = None
