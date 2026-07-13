@@ -28,7 +28,7 @@ class SeguimientoSemanal(Base):
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
     updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
 
-    obra           = relationship("Obra")
+    obra           = relationship("Obra", back_populates="seguimientos_semanales")
 
 
 class SintesisMensual(Base):
@@ -46,7 +46,7 @@ class SintesisMensual(Base):
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
     updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
 
-    obra        = relationship("Obra")
+    obra        = relationship("Obra", back_populates="sintesis_mensuales")
 
 
 class InformeGenerado(Base):
@@ -64,5 +64,5 @@ class InformeGenerado(Base):
 
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
 
-    obra           = relationship("Obra")
+    obra           = relationship("Obra", back_populates="informes_generados")
     usuario        = relationship("User")
