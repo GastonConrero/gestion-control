@@ -53,7 +53,7 @@ class Obra(Base):
     )
     items_computo         = relationship(
         "ItemObra", back_populates="obra",
-        cascade="all, delete-orphan", order_by="ItemObra.orden"
+        cascade="all, delete-orphan", order_by="ItemObra.id"
     )
     certificados          = relationship(
         "CertificadoAvance", back_populates="obra",
@@ -133,7 +133,7 @@ class ItemObra(Base):
     id              = Column(Integer, primary_key=True, index=True)
     obra_id         = Column(Integer, ForeignKey("obras.id"), nullable=False)
 
-    orden           = Column(Integer, nullable=False, default=0)
+    orden           = Column(String, nullable=True, default="0")  # admite "1", "1.1", "1.1.2"...
     designacion     = Column(String, nullable=False)
     unidad          = Column(String, nullable=True)   # ej: m2, m3, gl, ml
     cantidad        = Column(Numeric(14, 3), nullable=False, default=0)
