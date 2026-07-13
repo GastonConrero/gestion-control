@@ -59,6 +59,15 @@ class Obra(Base):
         "CertificadoAvance", back_populates="obra",
         cascade="all, delete-orphan", order_by="CertificadoAvance.numero"
     )
+    seguimientos_semanales = relationship(
+        "SeguimientoSemanal", back_populates="obra", cascade="all, delete-orphan"
+    )
+    sintesis_mensuales     = relationship(
+        "SintesisMensual", back_populates="obra", cascade="all, delete-orphan"
+    )
+    informes_generados     = relationship(
+        "InformeGenerado", back_populates="obra", cascade="all, delete-orphan"
+    )
 
 
 class CronogramaCuota(Base):
