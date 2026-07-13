@@ -32,6 +32,24 @@ def _solo_gaston(user: User):
         raise HTTPException(status_code=403, detail="Solo Gastón puede acceder a esta sección")
 
 
+def _orden_natural(orden_str) -> tuple:
+    """
+    Convierte un código de orden tipo "1", "1.1", "1.1.2" en una tupla
+    numérica para poder ordenar de forma jerárquica (no alfabética):
+    así "1.2" queda antes que "1.10", por ejemplo.
+    """
+    if not orden_str:
+        return (0,)
+    partes = []
+    for p in str(orden_str).split("."):
+        p = p.strip()
+        try:
+            partes.append(int(p))
+        except ValueError:
+            partes.append(0)
+    return tuple(partes) if partes else (0,)
+
+
 def _get_cliente(db: Session, cliente_id: int) -> Cliente:
     c = db.query(Cliente).filter(Cliente.id == cliente_id).first()
     if not c:
@@ -410,7 +428,8 @@ def listar_items(
     current_user: User = Depends(get_current_user),
 ):
     o = _get_obra(db, cliente_id, obra_id)
-    items = db.query(ItemObra).filter(ItemObra.obra_id == o.id).order_by(ItemObra.orden).all()
+    items = db.query(ItemObra).filter(ItemObra.obra_id == o.id).all()
+    items.sort(key=lambda i: _orden_natural(i.orden))
     return [_item_out(i) for i in items]
 
 
