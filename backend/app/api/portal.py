@@ -26,6 +26,19 @@ def _estado_item(pct) -> str:
     return "En progreso"
 
 
+def _orden_natural(orden_str) -> tuple:
+    if not orden_str:
+        return (0,)
+    partes = []
+    for p in str(orden_str).split("."):
+        p = p.strip()
+        try:
+            partes.append(int(p))
+        except ValueError:
+            partes.append(0)
+    return tuple(partes) if partes else (0,)
+
+
 @router.get("/{token}")
 def datos_generales(token: str, db: Session = Depends(get_db)):
     o = _get_obra_por_token(db, token)
@@ -75,7 +88,7 @@ def avance_por_item(token: str, db: Session = Depends(get_db)):
         return []
 
     items = []
-    for ci in sorted(ultimo_cert.items, key=lambda x: (x.item.orden if x.item else 0)):
+    for ci in sorted(ultimo_cert.items, key=lambda x: _orden_natural(x.item.orden if x.item else None)):
         items.append({
             "designacion": ci.item.designacion if ci.item else "—",
             "unidad": ci.item.unidad if ci.item else None,
