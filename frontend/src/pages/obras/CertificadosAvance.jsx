@@ -60,7 +60,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
 
   // ── Ítems del cómputo ────────────────────────────────────────────────────
   const abrirCrearItem = () => {
-    const siguiente = items.length > 0 ? Math.max(...items.map(i => i.orden || 0)) + 1 : 1
+    const siguiente = items.length > 0 ? String(items.length + 1) : '1'
     setFormItem({ ...EMPTY_ITEM, orden: siguiente })
     setErrorModal(''); setModalItem('crear')
   }
@@ -75,7 +75,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
     setGuardando(true); setErrorModal('')
     try {
       const payload = {
-        orden: formItem.orden === '' ? 0 : Number(formItem.orden),
+        orden: formItem.orden === '' ? null : formItem.orden,
         designacion: formItem.designacion,
         unidad: formItem.unidad || null,
         cantidad: formItem.cantidad === '' ? 0 : Number(formItem.cantidad),
@@ -344,7 +344,7 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
                 </div>
                 <div>
                   <label style={s.label}>Orden</label>
-                  <input type="number" style={s.input} value={formItem.orden}
+                  <input type="text" style={s.input} value={formItem.orden} placeholder="1, 1.1, 1.1.2..."
                     onChange={e => setFormItem({ ...formItem, orden: e.target.value })} />
                 </div>
                 <div>
