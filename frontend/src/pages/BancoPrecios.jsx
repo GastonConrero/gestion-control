@@ -4,11 +4,11 @@ import api from '../utils/api'
 
 function fmt(n) {
   if (n === null || n === undefined) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function fmtUsd(n) {
   if (n === null || n === undefined) return null
-  return 'USD ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return 'USD ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function fmtFecha(iso) {
   if (!iso) return '—'
