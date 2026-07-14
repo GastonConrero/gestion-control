@@ -16,7 +16,7 @@ const EMPTY_FORM = {
 
 function fmt(n) {
   if (n === null || n === undefined) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 0 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
 export default function ListaObras({ clienteId, rol }) {
