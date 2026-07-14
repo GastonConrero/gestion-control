@@ -5,7 +5,7 @@ import PlanificacionSemanal from './PlanificacionSemanal'
 
 function fmtMoneda(n) {
   if (n === null || n === undefined) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 0 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
 function fmtFechaHora(iso) {
