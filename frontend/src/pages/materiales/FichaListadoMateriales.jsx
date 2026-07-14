@@ -8,7 +8,7 @@ const TIPOS_FACTURA = [
 
 function fmt(n) {
   if (n === null || n === undefined) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function fmtPct(n) {
   if (n === null || n === undefined) return '—'
