@@ -5,12 +5,12 @@ const EMPTY_ITEM = { orden: '', designacion: '', unidad: '', cantidad: '', preci
 
 function fmt(n) {
   if (n === null || n === undefined) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtPct(n) {
   if (n === null || n === undefined) return '—'
-  return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 1 }) + '%'
+  return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
 }
 
 function fmtCantidad(n) {
@@ -481,13 +481,13 @@ const s = {
   curvaLeyenda:     { display: 'flex', gap: 16, justifyContent: 'center', marginTop: 6, fontSize: 11, color: '#666' },
   leyendaLinea:     { display: 'inline-block', width: 16, height: 2, marginRight: 4, verticalAlign: 'middle' },
   itemsLista:       { display: 'flex', flexDirection: 'column', gap: 6 },
-  itemCard:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #eee', borderRadius: 3, padding: '8px 12px' },
-  itemInfo:         { display: 'flex', flexDirection: 'column' },
+  itemCard:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #eee', borderRadius: 3, padding: '8px 12px', gap: 12 },
+  itemInfo:         { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 },
+  itemDerecha:      { display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, whiteSpace: 'nowrap' },
+  itemTotal:        { fontSize: 13, fontWeight: 700, color: '#111', whiteSpace: 'nowrap' },
+  itemTotalAlbanil: { fontSize: 11, color: '#999', whiteSpace: 'nowrap' },
   itemDesignacion:  { fontSize: 13, fontWeight: 600, color: '#111' },
   itemDetalle:      { fontSize: 11, color: '#999', marginTop: 2 },
-  itemDerecha:      { display: 'flex', alignItems: 'center', gap: 10 },
-  itemTotal:        { fontSize: 13, fontWeight: 700, color: '#111' },
-  itemTotalAlbanil: { fontSize: 11, color: '#999' },
   itemAcciones:     { display: 'flex', gap: 4 },
   certLista:        { display: 'flex', flexDirection: 'column', gap: 8 },
   certCard:         { border: '1px solid #eee', borderRadius: 4, overflow: 'hidden' },
