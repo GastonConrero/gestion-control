@@ -24,7 +24,7 @@ const EMPTY_HON = {
 
 function fmt(n) {
   if (n === null || n === undefined || n === '') return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtFecha(iso) {
@@ -197,7 +197,7 @@ export default function FichaProyecto({ clienteId, proyectoId, rol, onVolver }) 
                     <div style={s.fullWidth}>
                       <div style={s.netoPreview}>
                         <span style={s.netoLabel}>Neto a distribuir:</span>
-                        <span style={s.netoValor}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                        <span style={s.netoValor}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     </div>
                     <div style={s.fullWidth}>
@@ -287,7 +287,7 @@ function DistFila({ nombre, pct, monto }) {
       <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
         <span style={{ fontSize: 12, color: '#888' }}>{Number(pct).toFixed(1)}%</span>
         <span style={{ fontSize: 13, fontWeight: 700, color: '#111', minWidth: 120, textAlign: 'right' }}>
-          {monto !== null && monto !== undefined ? '$ ' + Number(monto).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '—'}
+          {monto !== null && monto !== undefined ? '$ ' + Number(monto).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
         </span>
       </div>
     </div>
@@ -298,7 +298,7 @@ function DistPreviewFila({ nombre, pct, monto }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0f0f0' }}>
       <span style={{ fontSize: 13, color: '#444' }}>{nombre} ({Number(pct).toFixed(1)}%)</span>
-      <span style={{ fontSize: 13, fontWeight: 700, color: '#D4502A' }}>$ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: '#D4502A' }}>$ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
     </div>
   )
 }
