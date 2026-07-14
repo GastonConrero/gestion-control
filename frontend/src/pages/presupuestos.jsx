@@ -44,7 +44,7 @@ const EMPTY = {
 
 function fmt(n) {
   if (!n) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 0 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
 function fmtFecha(iso) {
