@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
 from datetime import date
+import io
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -487,6 +488,125 @@ def eliminar_item(
     db.delete(i)
     db.commit()
     return {"ok": True}
+
+
+# ── Importar ítems del cómputo desde Excel ─────────────────────────────────────
+
+_CAND_ORDEN       = ["orden", "item", "nro", "n°", "codigo", "código", "cod", "cod."]
+_CAND_DESIGNACION = ["designacion", "designación", "descripcion", "descripción", "detalle", "concepto", "item designacion"]
+_CAND_UNIDAD      = ["unidad", "un", "u", "und"]
+_CAND_CANTIDAD    = ["cantidad", "cant", "cant.", "qty"]
+_CAND_PRECIO_CLIENTE = ["precio cliente", "precio unitario cliente", "precio unitario", "p. unit. cliente", "precio", "p.unit", "precio unit."]
+_CAND_PRECIO_ALBANIL = ["precio albañil", "precio albanil", "precio unitario albañil", "precio unitario albanil", "p. unit. albañil", "p. unit. albanil", "precio obrero"]
+
+
+def _norm(txt) -> str:
+    return str(txt).strip().lower() if txt is not None else ""
+
+
+@router.post("/{obra_id}/items/importar-excel")
+async def importar_items_excel(
+    cliente_id: int,
+    obra_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Importa los ítems del cómputo desde un Excel: busca una fila de
+    encabezados con columnas de Designación y Cantidad (en cualquier
+    orden), y opcionalmente Orden, Unidad, Precio cliente y Precio
+    albañil. Crea un ítem por cada fila con datos.
+    """
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl no está instalado")
+
+    contenido = await archivo.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="No se pudo leer el archivo. ¿Es un .xlsx válido?")
+
+    ws = wb.active
+    filas = list(ws.iter_rows(values_only=True))
+    if not filas:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    idx_header = None
+    col = {}
+    for i, fila in enumerate(filas[:5]):
+        normal = [_norm(c) for c in fila]
+        col_desig = next((j for j, v in enumerate(normal) if v in _CAND_DESIGNACION), None)
+        col_cant = next((j for j, v in enumerate(normal) if v in _CAND_CANTIDAD), None)
+        if col_desig is not None and col_cant is not None:
+            idx_header = i
+            col["designacion"] = col_desig
+            col["cantidad"] = col_cant
+            col["orden"] = next((j for j, v in enumerate(normal) if v in _CAND_ORDEN), None)
+            col["unidad"] = next((j for j, v in enumerate(normal) if v in _CAND_UNIDAD), None)
+            col["precio_cliente"] = next((j for j, v in enumerate(normal) if v in _CAND_PRECIO_CLIENTE), None)
+            col["precio_albanil"] = next((j for j, v in enumerate(normal) if v in _CAND_PRECIO_ALBANIL), None)
+            break
+
+    if idx_header is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No encontré columnas de Designación y Cantidad en las primeras filas. Revisá los encabezados del Excel.",
+        )
+
+    def _valor(fila, key):
+        idx = col.get(key)
+        if idx is None or idx >= len(fila):
+            return None
+        return fila[idx]
+
+    creados = 0
+    omitidas = 0
+    avisos = []
+
+    for fila in filas[idx_header + 1:]:
+        if fila is None:
+            continue
+        desig = _valor(fila, "designacion")
+        if not desig or not str(desig).strip():
+            omitidas += 1
+            continue
+
+        def _dec(val, default=Decimal("0")):
+            if val is None:
+                return default
+            try:
+                return Decimal(str(val))
+            except Exception:
+                return default
+
+        orden_val = _valor(fila, "orden")
+        unidad_val = _valor(fila, "unidad")
+
+        i = ItemObra(
+            obra_id=o.id,
+            orden=str(orden_val).strip() if orden_val is not None else None,
+            designacion=str(desig).strip(),
+            unidad=str(unidad_val).strip() if unidad_val else None,
+            cantidad=_dec(_valor(fila, "cantidad")),
+            precio_unitario=_dec(_valor(fila, "precio_cliente")),
+            precio_unitario_albanil=_dec(_valor(fila, "precio_albanil")),
+        )
+        db.add(i)
+        creados += 1
+
+    if col.get("precio_cliente") is None:
+        avisos.append("No encontré columna de precio para la cuenta cliente — quedó en $0, cargalo manualmente.")
+    if col.get("precio_albanil") is None:
+        avisos.append("No encontré columna de precio para la cuenta albañil — quedó en $0, cargalo manualmente.")
+
+    db.commit()
+    return {"items_creados": creados, "filas_omitidas": omitidas, "avisos": avisos}
 
 
 # ── Certificados de avance ────────────────────────────────────────────────────
