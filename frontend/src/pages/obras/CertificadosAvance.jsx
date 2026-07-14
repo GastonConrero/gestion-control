@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import api from '../../utils/api'
 
 const EMPTY_ITEM = { orden: '', designacion: '', unidad: '', cantidad: '', precio_unitario: '', precio_unitario_albanil: '' }
@@ -39,6 +39,9 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
   const [certAbierto, setCertAbierto] = useState(null)    // certificado expandido
   const [guardando, setGuardando]     = useState(false)
   const [errorModal, setErrorModal]   = useState('')
+  const [subiendoExcel, setSubiendoExcel] = useState(false)
+  const [resultadoExcel, setResultadoExcel] = useState(null)
+  const fileInputRef = useRef(null)
 
   const esGaston = rol === 'gaston'
 
@@ -64,6 +67,27 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
     setFormItem({ ...EMPTY_ITEM, orden: siguiente })
     setErrorModal(''); setModalItem('crear')
   }
+
+  const subirExcel = async (e) => {
+    const archivo = e.target.files?.[0]
+    if (!archivo) return
+    setSubiendoExcel(true); setResultadoExcel(null)
+    try {
+      const fd = new FormData()
+      fd.append('archivo', archivo)
+      const r = await api.post(`/api/clientes/${clienteId}/obras/${obraId}/items/importar-excel`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setResultadoExcel(r.data)
+      cargar()
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Error al importar el Excel')
+    } finally {
+      setSubiendoExcel(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   const abrirEditarItem = (i) => {
     setFormItem({ orden: i.orden ?? '', designacion: i.designacion, unidad: i.unidad || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario, precio_unitario_albanil: i.precio_unitario_albanil })
     setErrorModal(''); setModalItem(i)
@@ -244,8 +268,27 @@ export default function CertificadosAvance({ clienteId, obraId, rol }) {
       <div style={s.subseccion}>
         <div style={s.seccionHeader}>
           <div style={s.subTitulo}>Ítems del cómputo</div>
-          {esGaston && <button onClick={abrirCrearItem} style={s.btnSecPrimario}>+ Nuevo ítem</button>}
+          {esGaston && (
+            <div style={s.accionesHeader}>
+              <button onClick={() => fileInputRef.current?.click()} style={s.btnImportar} disabled={subiendoExcel}>
+                {subiendoExcel ? 'Importando...' : '📄 Importar Excel'}
+              </button>
+              <input ref={fileInputRef} type="file" accept=".xlsx" onChange={subirExcel} style={{ display: 'none' }} />
+              <button onClick={abrirCrearItem} style={s.btnSecPrimario}>+ Nuevo ítem</button>
+            </div>
+          )}
         </div>
+        {resultadoExcel && (
+          <div style={s.resultadoExcel}>
+            <div>✓ {resultadoExcel.items_creados} ítems importados{resultadoExcel.filas_omitidas > 0 ? `, ${resultadoExcel.filas_omitidas} filas omitidas` : ''}.</div>
+            {resultadoExcel.avisos.map((a, i) => <div key={i} style={s.avisoExcel}>⚠ {a}</div>)}
+          </div>
+        )}
+        {esGaston && (
+          <div style={s.hintExcel}>
+            El Excel necesita columnas de <b>Designación</b> y <b>Cantidad</b> (en cualquier orden), y opcionalmente Orden, Unidad, Precio Cliente y Precio Albañil.
+          </div>
+        )}
         {items.length === 0 ? (
           <div style={s.empty}>Todavía no hay ítems cargados en el cómputo.</div>
         ) : (
@@ -504,6 +547,11 @@ const s = {
   certItemPct:      { color: '#666', fontSize: 11, marginTop: 1 },
   certItemMonto:    { color: '#999', fontSize: 11 },
   btnSecPrimario:   { background: '#D4502A', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 3, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
+  accionesHeader:   { display: 'flex', gap: 8, alignItems: 'center' },
+  btnImportar:      { background: '#fff', color: '#D4502A', border: '1px solid #D4502A', padding: '6px 12px', borderRadius: 3, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
+  resultadoExcel:   { marginTop: 8, marginBottom: 10, background: '#f9f9f9', borderRadius: 3, padding: '8px 12px', fontSize: 12 },
+  avisoExcel:       { color: '#b45309', marginTop: 4 },
+  hintExcel:        { fontSize: 11, color: '#999', marginBottom: 10 },
   btnMini:          { background: 'none', border: '1px solid #ddd', color: '#555', padding: '2px 8px', borderRadius: 3, cursor: 'pointer', fontSize: 11 },
   hintFormula:      { fontSize: 11, color: '#999', marginTop: 10 },
   empty:            { textAlign: 'center', color: '#aaa', padding: 20, background: '#fafafa', borderRadius: 4, border: '1px dashed #ddd', fontSize: 13 },
