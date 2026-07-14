@@ -16,7 +16,7 @@ const EMPTY_IPC = { ipc_pct: '', fuente: 'estimado' }
 
 function fmt(n) {
   if (n === null || n === undefined) return '—'
-  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return '$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtFecha(iso) {
