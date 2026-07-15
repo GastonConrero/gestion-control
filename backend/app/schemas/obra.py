@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
-from app.models.obra import EstadoObra, EstadoCuota
+from app.models.obra import EstadoObra, TipoMovimiento
 
 
 # ── Obra ─────────────────────────────────────────────────────────────────────
@@ -48,69 +48,64 @@ class ObraOut(ObraBase):
     model_config = {"from_attributes": True}
 
 
-# ── Cronograma / Cuotas ──────────────────────────────────────────────────────
+# ── Cronograma de pagos (cuenta corriente) ────────────────────────────────────
 
-class CuotaBase(BaseModel):
-    numero            : int
-    descripcion       : Optional[str] = None
-    fecha_prevista    : Optional[date] = None
-    monto_cliente     : Decimal = Decimal("0")
-    monto_albanil     : Decimal = Decimal("0")
-    notas             : Optional[str] = None
-
-
-class CuotaCreate(CuotaBase):
-    pass
+class MovimientoCreate(BaseModel):
+    fecha          : date
+    tipo           : TipoMovimiento
+    monto_cliente  : Decimal = Decimal("0")
+    monto_albanil  : Decimal = Decimal("0")
+    concepto       : Optional[str] = None
+    es_ajuste_ipc  : bool = False
 
 
-class CuotaUpdate(BaseModel):
-    numero            : Optional[int] = None
-    descripcion       : Optional[str] = None
-    fecha_prevista    : Optional[date] = None
-    monto_cliente     : Optional[Decimal] = None
-    monto_albanil     : Optional[Decimal] = None
-    notas             : Optional[str] = None
+class MovimientoUpdate(BaseModel):
+    fecha          : Optional[date] = None
+    tipo           : Optional[TipoMovimiento] = None
+    monto_cliente  : Optional[Decimal] = None
+    monto_albanil  : Optional[Decimal] = None
+    concepto       : Optional[str] = None
+    es_ajuste_ipc  : Optional[bool] = None
 
 
-class CuotaOut(CuotaBase):
-    id                    : int
-    obra_id               : int
-    estado                : EstadoCuota
-    ajuste_ipc_cliente    : Decimal
-    ajuste_ipc_albanil    : Decimal
-    fecha_pago            : Optional[date] = None
-    monto_pagado_cliente  : Optional[Decimal] = None
-    monto_pagado_albanil  : Optional[Decimal] = None
-    saldo_cliente         : Optional[Decimal] = None  # monto_cliente + ajuste_ipc_cliente
-    saldo_albanil         : Optional[Decimal] = None
-    created_at            : Optional[datetime] = None
+class MovimientoOut(BaseModel):
+    id             : int
+    obra_id        : int
+    fecha          : date
+    tipo           : TipoMovimiento
+    monto_cliente  : Decimal
+    monto_albanil  : Decimal
+    concepto       : Optional[str] = None
+    es_ajuste_ipc  : bool
+    created_at     : Optional[datetime] = None
+    # saldo acumulado hasta este movimiento, inclusive (informativo)
+    saldo_cliente_acumulado : Optional[Decimal] = None
+    saldo_albanil_acumulado : Optional[Decimal] = None
 
     model_config = {"from_attributes": True}
 
 
-class PagarCuota(BaseModel):
-    monto_pagado_cliente : Optional[Decimal] = None
-    monto_pagado_albanil : Optional[Decimal] = None
-    fecha_pago           : Optional[date] = None
-
-
-class AjustarIPC(BaseModel):
+class AplicarAjusteIPC(BaseModel):
+    fecha    : date
     ipc_pct  : Decimal
+    cuenta   : str = "ambas"  # "cliente" | "albanil" | "ambas"
     fuente   : Optional[str] = "estimado"  # "estimado" | "indec"
 
 
-class AjusteIPCOut(BaseModel):
-    id                     : int
-    cuota_id               : int
-    ipc_pct                : Decimal
-    fuente                 : Optional[str] = None
-    ajuste_cliente         : Decimal
-    ajuste_albanil         : Decimal
-    saldo_cliente_previo   : Optional[Decimal] = None
-    saldo_albanil_previo   : Optional[Decimal] = None
-    created_at             : Optional[datetime] = None
+class ResumenCronograma(BaseModel):
+    total_cargos_cliente : Decimal
+    total_pagos_cliente  : Decimal
+    saldo_cliente         : Decimal
+    total_cargos_albanil : Decimal
+    total_pagos_albanil  : Decimal
+    saldo_albanil         : Decimal
 
-    model_config = {"from_attributes": True}
+
+class ImportarCronogramaResultado(BaseModel):
+    movimientos_creados : int
+    filas_omitidas      : int
+    avisos              : List[str] = []
+
 
 
 class VincularPresupuesto(BaseModel):
