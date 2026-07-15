@@ -1,24 +1,62 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
-from datetime import datetime
+from datetime import date
 import io
-import os
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.obra import Obra, CronogramaCuota, CertificadoAvance, EstadoCuota
-from app.models.informe import SeguimientoSemanal, SintesisMensual, InformeGenerado
-from app.schemas.informe import (
-    SeguimientoUpsert, SeguimientoOut, SintesisUpsert, SintesisOut,
-    InformeGeneradoOut, InformeGeneradoUpdate,
+from app.models.obra import (
+    Obra, MovimientoCronograma, TipoMovimiento,
+    ItemObra, CertificadoAvance, CertificadoItem,
+)
+from app.models.cliente import Cliente
+from app.models.presupuesto import Presupuesto
+from app.models.materiales import ListadoMateriales
+from app.models.analisis_inversion import AnalisisInversion
+from app.schemas.obra import (
+    ObraCreate, ObraUpdate, ObraOut,
+    MovimientoCreate, MovimientoUpdate, MovimientoOut, AplicarAjusteIPC,
+    ResumenCronograma, ImportarCronogramaResultado,
+    VincularPresupuesto,
+    ItemCreate, ItemUpdate, ItemOut,
+    CertificadoCreate, CertificadoOut, CertificadoItemOut,
+    ResumenCertificados, CurvaOut, PuntoCurva,
 )
 
-router = APIRouter(prefix="/api/clientes/{cliente_id}/obras/{obra_id}/informe", tags=["informe"])
+router = APIRouter(prefix="/api/clientes/{cliente_id}/obras", tags=["obras"])
 
-LOGO_PATH = '/app/backend/logo_nodo.png'
+
+def _solo_gaston(user: User):
+    if user.rol != "gaston":
+        raise HTTPException(status_code=403, detail="Solo Gastón puede acceder a esta sección")
+
+
+def _orden_natural(orden_str) -> tuple:
+    """
+    Convierte un código de orden tipo "1", "1.1", "1.1.2" en una tupla
+    numérica para poder ordenar de forma jerárquica (no alfabética):
+    así "1.2" queda antes que "1.10", por ejemplo.
+    """
+    if not orden_str:
+        return (0,)
+    partes = []
+    for p in str(orden_str).split("."):
+        p = p.strip()
+        try:
+            partes.append(int(p))
+        except ValueError:
+            partes.append(0)
+    return tuple(partes) if partes else (0,)
+
+
+def _get_cliente(db: Session, cliente_id: int) -> Cliente:
+    c = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    return c
 
 
 def _get_obra(db: Session, cliente_id: int, obra_id: int) -> Obra:
@@ -28,480 +66,945 @@ def _get_obra(db: Session, cliente_id: int, obra_id: int) -> Obra:
     return o
 
 
-# ── Seguimiento semanal ───────────────────────────────────────────────────────
-
-@router.get("/seguimiento", response_model=List[SeguimientoOut])
-def listar_seguimiento(
-    cliente_id: int,
-    obra_id: int,
-    periodo: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    o = _get_obra(db, cliente_id, obra_id)
-    return (
-        db.query(SeguimientoSemanal)
-        .filter(SeguimientoSemanal.obra_id == o.id, SeguimientoSemanal.periodo == periodo)
-        .order_by(SeguimientoSemanal.semana_numero)
-        .all()
-    )
-
-
-@router.post("/seguimiento", response_model=SeguimientoOut)
-def guardar_seguimiento(
-    cliente_id: int,
-    obra_id: int,
-    datos: SeguimientoUpsert,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Crea o actualiza la semana (1 a 4) de un período. Lo pueden cargar los tres."""
-    o = _get_obra(db, cliente_id, obra_id)
-    if datos.semana_numero not in (1, 2, 3, 4):
-        raise HTTPException(status_code=400, detail="La semana debe ser 1, 2, 3 o 4")
-
-    s = (
-        db.query(SeguimientoSemanal)
-        .filter(
-            SeguimientoSemanal.obra_id == o.id,
-            SeguimientoSemanal.periodo == datos.periodo,
-            SeguimientoSemanal.semana_numero == datos.semana_numero,
-        )
-        .first()
-    )
-    if s:
-        s.descripcion = datos.descripcion
-        s.foto_url_1 = datos.foto_url_1
-        s.foto_url_2 = datos.foto_url_2
-    else:
-        s = SeguimientoSemanal(obra_id=o.id, **datos.model_dump())
-        db.add(s)
-    db.commit()
-    db.refresh(s)
-    return s
-
-
-@router.delete("/seguimiento/{seguimiento_id}")
-def eliminar_seguimiento(
-    cliente_id: int,
-    obra_id: int,
-    seguimiento_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    _get_obra(db, cliente_id, obra_id)
-    s = db.query(SeguimientoSemanal).filter(
-        SeguimientoSemanal.id == seguimiento_id, SeguimientoSemanal.obra_id == obra_id
+def _get_movimiento(db: Session, obra_id: int, movimiento_id: int) -> MovimientoCronograma:
+    m = db.query(MovimientoCronograma).filter(
+        MovimientoCronograma.id == movimiento_id, MovimientoCronograma.obra_id == obra_id
     ).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Seguimiento no encontrado")
-    db.delete(s)
-    db.commit()
-    return {"ok": True}
+    if not m:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+    return m
 
 
-# ── Síntesis mensual ──────────────────────────────────────────────────────────
-
-@router.get("/sintesis", response_model=Optional[SintesisOut])
-def obtener_sintesis(
-    cliente_id: int,
-    obra_id: int,
-    periodo: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    o = _get_obra(db, cliente_id, obra_id)
-    return (
-        db.query(SintesisMensual)
-        .filter(SintesisMensual.obra_id == o.id, SintesisMensual.periodo == periodo)
-        .first()
-    )
+def _totales_cronograma(o: Obra) -> dict:
+    total_cargos_cliente = sum((m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.cargo), Decimal("0"))
+    total_pagos_cliente = sum((m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0"))
+    total_cargos_albanil = sum((m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.cargo), Decimal("0"))
+    total_pagos_albanil = sum((m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0"))
+    return {
+        "total_cargos_cliente": total_cargos_cliente,
+        "total_pagos_cliente": total_pagos_cliente,
+        "saldo_cliente": total_cargos_cliente - total_pagos_cliente,
+        "total_cargos_albanil": total_cargos_albanil,
+        "total_pagos_albanil": total_pagos_albanil,
+        "saldo_albanil": total_cargos_albanil - total_pagos_albanil,
+    }
 
 
-@router.post("/sintesis", response_model=SintesisOut)
-def guardar_sintesis(
-    cliente_id: int,
-    obra_id: int,
-    datos: SintesisUpsert,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    o = _get_obra(db, cliente_id, obra_id)
-    s = (
-        db.query(SintesisMensual)
-        .filter(SintesisMensual.obra_id == o.id, SintesisMensual.periodo == datos.periodo)
-        .first()
-    )
-    if s:
-        s.texto = datos.texto
+def _enriquecer_obra(o: Obra, es_gaston: bool) -> dict:
+    d = {c.name: getattr(o, c.name) for c in o.__table__.columns}
+    d["presupuesto_numero"] = o.presupuesto.numero if o.presupuesto else None
+
+    if es_gaston:
+        t = _totales_cronograma(o)
+        d["total_cliente"] = t["total_cargos_cliente"]
+        d["total_albanil"] = t["total_cargos_albanil"]
+        d["pagado_cliente"] = t["total_pagos_cliente"]
+        d["pagado_albanil"] = t["total_pagos_albanil"]
     else:
-        s = SintesisMensual(obra_id=o.id, periodo=datos.periodo, texto=datos.texto)
-        db.add(s)
-    db.commit()
-    db.refresh(s)
-    return s
+        d["total_cliente"] = None
+        d["total_albanil"] = None
+        d["pagado_cliente"] = None
+        d["pagado_albanil"] = None
+
+    return d
 
 
-# ── Historial de informes emitidos ────────────────────────────────────────────
-
-@router.get("/historial", response_model=List[InformeGeneradoOut])
-def historial_informes(
-    cliente_id: int,
-    obra_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    o = _get_obra(db, cliente_id, obra_id)
-    registros = (
-        db.query(InformeGenerado)
-        .filter(InformeGenerado.obra_id == o.id)
-        .order_by(InformeGenerado.created_at.desc())
-        .all()
-    )
+def _movimientos_con_saldo(movimientos: list) -> list:
+    """Ordena por fecha y calcula el saldo acumulado (cargos - pagos) hasta cada movimiento."""
+    ordenados = sorted(movimientos, key=lambda m: (m.fecha, m.id))
+    saldo_cliente = Decimal("0")
+    saldo_albanil = Decimal("0")
     salida = []
-    for r in registros:
-        d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-        d["usuario_nombre"] = r.usuario.nombre if r.usuario else None
+    for m in ordenados:
+        signo = 1 if m.tipo == TipoMovimiento.cargo else -1
+        saldo_cliente += signo * m.monto_cliente
+        saldo_albanil += signo * m.monto_albanil
+        d = {c.name: getattr(m, c.name) for c in m.__table__.columns}
+        d["saldo_cliente_acumulado"] = saldo_cliente
+        d["saldo_albanil_acumulado"] = saldo_albanil
         salida.append(d)
     return salida
 
 
-@router.put("/historial/{informe_id}", response_model=InformeGeneradoOut)
-def editar_informe_historial(
+# ── Obra: datos generales ────────────────────────────────────────────────────
+
+@router.get("/", response_model=List[ObraOut])
+def listar_obras(
     cliente_id: int,
-    obra_id: int,
-    informe_id: int,
-    datos: InformeGeneradoUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Corrige el período de un registro del historial (por si quedó mal escrito)."""
-    _get_obra(db, cliente_id, obra_id)
-    r = db.query(InformeGenerado).filter(
-        InformeGenerado.id == informe_id, InformeGenerado.obra_id == obra_id
-    ).first()
-    if not r:
-        raise HTTPException(status_code=404, detail="Registro no encontrado")
-    if datos.periodo is not None:
-        r.periodo = datos.periodo
+    _get_cliente(db, cliente_id)
+    es_gaston = current_user.rol == "gaston"
+    obras = db.query(Obra).filter(Obra.cliente_id == cliente_id).order_by(Obra.created_at.desc()).all()
+    return [_enriquecer_obra(o, es_gaston) for o in obras]
+
+
+@router.post("/", response_model=ObraOut)
+def crear_obra(
+    cliente_id: int,
+    datos: ObraCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_cliente(db, cliente_id)
+
+    if datos.presupuesto_id:
+        presu = db.query(Presupuesto).filter(
+            Presupuesto.id == datos.presupuesto_id, Presupuesto.cliente_id == cliente_id
+        ).first()
+        if not presu:
+            raise HTTPException(status_code=404, detail="Presupuesto no encontrado para este cliente")
+
+    o = Obra(cliente_id=cliente_id, **datos.model_dump())
+    db.add(o)
     db.commit()
-    db.refresh(r)
-    d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-    d["usuario_nombre"] = r.usuario.nombre if r.usuario else None
-    return d
+    db.refresh(o)
+    return _enriquecer_obra(o, True)
 
 
-@router.delete("/historial/{informe_id}")
-def eliminar_informe_historial(
+@router.get("/{obra_id}", response_model=ObraOut)
+def obtener_obra(
     cliente_id: int,
     obra_id: int,
-    informe_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Elimina un registro del historial de informes emitidos (por si algo salió mal)."""
-    _get_obra(db, cliente_id, obra_id)
-    r = db.query(InformeGenerado).filter(
-        InformeGenerado.id == informe_id, InformeGenerado.obra_id == obra_id
+    o = _get_obra(db, cliente_id, obra_id)
+    return _enriquecer_obra(o, current_user.rol == "gaston")
+
+
+@router.put("/{obra_id}", response_model=ObraOut)
+def actualizar_obra(
+    cliente_id: int,
+    obra_id: int,
+    datos: ObraUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    for k, v in datos.model_dump(exclude_unset=True).items():
+        setattr(o, k, v)
+    db.commit()
+    db.refresh(o)
+    return _enriquecer_obra(o, True)
+
+
+@router.delete("/{obra_id}")
+def eliminar_obra(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+
+    # Los listados de materiales y análisis de inversión son útiles por sí
+    # solos: se desvinculan de la obra en vez de borrarse junto con ella.
+    db.query(ListadoMateriales).filter(ListadoMateriales.obra_id == o.id).update({"obra_id": None})
+    db.query(AnalisisInversion).filter(AnalisisInversion.obra_id == o.id).update({"obra_id": None})
+
+    try:
+        db.delete(o)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"No se pudo eliminar la obra: {str(e)}")
+
+    return {"ok": True}
+
+
+@router.post("/{obra_id}/vincular-presupuesto", response_model=ObraOut)
+def vincular_presupuesto(
+    cliente_id: int,
+    obra_id: int,
+    datos: VincularPresupuesto,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    presu = db.query(Presupuesto).filter(
+        Presupuesto.id == datos.presupuesto_id, Presupuesto.cliente_id == cliente_id
     ).first()
-    if not r:
-        raise HTTPException(status_code=404, detail="Registro no encontrado")
-    db.delete(r)
+    if not presu:
+        raise HTTPException(status_code=404, detail="Presupuesto no encontrado para este cliente")
+    if presu.estado != "confirmado":
+        raise HTTPException(status_code=400, detail="Solo se puede vincular un presupuesto confirmado")
+    o.presupuesto_id = presu.id
+    db.commit()
+    db.refresh(o)
+    return _enriquecer_obra(o, True)
+
+
+@router.get("/{obra_id}/portal-link")
+def obtener_link_portal(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Devuelve el token del Portal del Cliente (sección 4.15), generándolo la
+    primera vez que se pide. Con ese token se arma el link único (sin
+    usuario/contraseña) para enviar por WhatsApp.
+    """
+    o = _get_obra(db, cliente_id, obra_id)
+    if not o.token_portal:
+        import uuid
+        o.token_portal = uuid.uuid4().hex
+        db.commit()
+        db.refresh(o)
+    return {"token": o.token_portal}
+
+
+@router.post("/{obra_id}/portal-link/regenerar")
+def regenerar_link_portal(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Invalida el link anterior (por si se compartió por error) y genera uno nuevo."""
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    import uuid
+    o.token_portal = uuid.uuid4().hex
+    db.commit()
+    db.refresh(o)
+    return {"token": o.token_portal}
+
+
+# ── Cronograma de pagos ──────────────────────────────────────────────────────
+
+# ── Cronograma de pagos (cuenta corriente) ────────────────────────────────────
+
+@router.get("/{obra_id}/cronograma", response_model=List[MovimientoOut])
+def listar_cronograma(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    return _movimientos_con_saldo(o.cronograma)
+
+
+@router.get("/{obra_id}/cronograma/resumen", response_model=ResumenCronograma)
+def resumen_cronograma(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    return _totales_cronograma(o)
+
+
+@router.post("/{obra_id}/cronograma", response_model=MovimientoOut)
+def crear_movimiento(
+    cliente_id: int,
+    obra_id: int,
+    datos: MovimientoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    m = MovimientoCronograma(obra_id=o.id, **datos.model_dump())
+    db.add(m)
+    db.commit()
+    db.refresh(o)
+    return next(x for x in _movimientos_con_saldo(o.cronograma) if x["id"] == m.id)
+
+
+@router.put("/{obra_id}/cronograma/{movimiento_id}", response_model=MovimientoOut)
+def actualizar_movimiento(
+    cliente_id: int,
+    obra_id: int,
+    movimiento_id: int,
+    datos: MovimientoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    m = _get_movimiento(db, obra_id, movimiento_id)
+    for k, v in datos.model_dump(exclude_unset=True).items():
+        setattr(m, k, v)
+    db.commit()
+    db.refresh(o)
+    return next(x for x in _movimientos_con_saldo(o.cronograma) if x["id"] == m.id)
+
+
+@router.delete("/{obra_id}/cronograma/{movimiento_id}")
+def eliminar_movimiento(
+    cliente_id: int,
+    obra_id: int,
+    movimiento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    m = _get_movimiento(db, obra_id, movimiento_id)
+    db.delete(m)
     db.commit()
     return {"ok": True}
 
 
-# ── Generación del PDF (3 páginas, sección 4.11) ──────────────────────────────
-
-def _descargar_imagen(url: str):
-    """Descarga una imagen desde una URL para embeberla en el PDF. Falla en silencio."""
-    if not url:
-        return None
-    try:
-        import requests
-        resp = requests.get(url, timeout=8)
-        if resp.status_code == 200 and resp.content:
-            return io.BytesIO(resp.content)
-    except Exception:
-        pass
-    return None
-
-
-@router.get("/pdf")
-def generar_informe_pdf(
+@router.post("/{obra_id}/cronograma/ajustar-ipc", response_model=MovimientoOut)
+def ajustar_ipc(
     cliente_id: int,
     obra_id: int,
-    periodo: str,
+    datos: AplicarAjusteIPC,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from fastapi.responses import StreamingResponse
-
+    """
+    Aplica el ajuste IPC compuesto sobre el SALDO PENDIENTE TOTAL a la
+    fecha indicada (no sobre un movimiento puntual): como el saldo ya
+    arrastra los ajustes previos, el resultado es naturalmente compuesto
+        ajuste = saldo * (1 + ipc/100) - saldo
+    y se registra como un nuevo movimiento tipo "cargo".
+    """
+    _solo_gaston(current_user)
     o = _get_obra(db, cliente_id, obra_id)
 
-    seguimientos = {
-        s.semana_numero: s
-        for s in db.query(SeguimientoSemanal).filter(
-            SeguimientoSemanal.obra_id == o.id, SeguimientoSemanal.periodo == periodo
-        ).all()
-    }
-    sintesis = db.query(SintesisMensual).filter(
-        SintesisMensual.obra_id == o.id, SintesisMensual.periodo == periodo
-    ).first()
+    movs_previos = [m for m in o.cronograma if m.fecha <= datos.fecha]
+    saldo_cliente = sum(
+        ((m.monto_cliente if m.tipo == TipoMovimiento.cargo else -m.monto_cliente) for m in movs_previos),
+        Decimal("0"),
+    )
+    saldo_albanil = sum(
+        ((m.monto_albanil if m.tipo == TipoMovimiento.cargo else -m.monto_albanil) for m in movs_previos),
+        Decimal("0"),
+    )
 
-    # Certificado del período (para "ejecución acumulada" y la curva)
+    factor = (Decimal("1") + (datos.ipc_pct / Decimal("100")))
+    ajuste_cliente = (saldo_cliente * factor - saldo_cliente) if datos.cuenta in ("cliente", "ambas") else Decimal("0")
+    ajuste_albanil = (saldo_albanil * factor - saldo_albanil) if datos.cuenta in ("albanil", "ambas") else Decimal("0")
+
+    concepto = f"Ajuste por IPC {datos.ipc_pct}% ({datos.fuente or 'estimado'})"
+    m = MovimientoCronograma(
+        obra_id=o.id, fecha=datos.fecha, tipo=TipoMovimiento.cargo,
+        monto_cliente=ajuste_cliente, monto_albanil=ajuste_albanil,
+        concepto=concepto, es_ajuste_ipc=True,
+    )
+    db.add(m)
+    db.commit()
+    db.refresh(o)
+    return next(x for x in _movimientos_con_saldo(o.cronograma) if x["id"] == m.id)
+
+
+# ── Importar cronograma desde Excel ───────────────────────────────────────────
+
+_CRON_CAND_FECHA = ["fecha"]
+_CRON_CAND_PRESUPUESTO = ["presupuesto", "cargo", "cargos"]
+_CRON_CAND_PAGOS = ["pagos", "pago"]
+_CRON_CAND_OBS = ["observaciones", "observacion", "observación", "concepto", "detalle"]
+
+
+@router.post("/{obra_id}/cronograma/importar-excel", response_model=ImportarCronogramaResultado)
+async def importar_cronograma_excel(
+    cliente_id: int,
+    obra_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Importa el cronograma desde un Excel tipo cuenta corriente: columnas
+    Fecha, Presupuesto (cargo) y/o Pagos, y Observaciones. La columna
+    "Resto" se ignora (el sistema la recalcula). Las filas con
+    observaciones que mencionen "ipc" o "ajuste" se marcan como ajuste IPC.
+    """
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl no está instalado")
+
+    contenido = await archivo.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="No se pudo leer el archivo. ¿Es un .xlsx válido?")
+
+    ws = wb.active
+    filas = list(ws.iter_rows(values_only=True))
+    if not filas:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    idx_header = None
+    col = {}
+    for i, fila in enumerate(filas[:5]):
+        normal = [_norm(c) for c in fila]
+        col_fecha = next((j for j, v in enumerate(normal) if v in _CRON_CAND_FECHA), None)
+        if col_fecha is not None:
+            idx_header = i
+            col["fecha"] = col_fecha
+            col["presupuesto"] = next((j for j, v in enumerate(normal) if v in _CRON_CAND_PRESUPUESTO), None)
+            col["pagos"] = next((j for j, v in enumerate(normal) if v in _CRON_CAND_PAGOS), None)
+            col["obs"] = next((j for j, v in enumerate(normal) if v in _CRON_CAND_OBS), None)
+            break
+
+    if idx_header is None:
+        raise HTTPException(status_code=400, detail="No encontré una columna 'Fecha'. Revisá los encabezados del Excel.")
+    if col.get("presupuesto") is None and col.get("pagos") is None:
+        raise HTTPException(status_code=400, detail="No encontré columnas 'Presupuesto' ni 'Pagos'.")
+
+    def _valor(fila, key):
+        idx = col.get(key)
+        if idx is None or idx >= len(fila):
+            return None
+        return fila[idx]
+
+    def _dec_abs(val):
+        if val is None:
+            return None
+        try:
+            return abs(Decimal(str(val)))
+        except Exception:
+            return None
+
+    creados = 0
+    omitidas = 0
+    avisos = []
+
+    for fila in filas[idx_header + 1:]:
+        if fila is None:
+            continue
+        fecha_val = _valor(fila, "fecha")
+        if not fecha_val:
+            omitidas += 1
+            continue
+        try:
+            if isinstance(fecha_val, str):
+                fecha = date.fromisoformat(fecha_val[:10])
+            else:
+                fecha = fecha_val.date() if hasattr(fecha_val, "date") else fecha_val
+        except Exception:
+            omitidas += 1
+            avisos.append(f"No pude leer la fecha '{fecha_val}', fila omitida.")
+            continue
+
+        obs = _valor(fila, "obs")
+        obs_txt = str(obs).strip() if obs else None
+        es_ajuste = bool(obs_txt) and ("ipc" in obs_txt.lower() or "ajuste" in obs_txt.lower())
+
+        monto_cargo = _dec_abs(_valor(fila, "presupuesto"))
+        monto_pago = _dec_abs(_valor(fila, "pagos"))
+
+        if monto_cargo:
+            db.add(MovimientoCronograma(
+                obra_id=o.id, fecha=fecha, tipo=TipoMovimiento.cargo,
+                monto_cliente=monto_cargo, monto_albanil=Decimal("0"),
+                concepto=obs_txt, es_ajuste_ipc=es_ajuste,
+            ))
+            creados += 1
+        if monto_pago:
+            db.add(MovimientoCronograma(
+                obra_id=o.id, fecha=fecha, tipo=TipoMovimiento.pago,
+                monto_cliente=monto_pago, monto_albanil=Decimal("0"),
+                concepto=obs_txt, es_ajuste_ipc=False,
+            ))
+            creados += 1
+        if not monto_cargo and not monto_pago:
+            omitidas += 1
+
+    if creados > 0:
+        avisos.append("Los montos se importaron a la cuenta cliente. La cuenta albañil quedó en $0 — cargala manualmente si corresponde.")
+
+    db.commit()
+    return {"movimientos_creados": creados, "filas_omitidas": omitidas, "avisos": avisos}
+
+
+# ── Ítems del cómputo ─────────────────────────────────────────────────────────
+
+def _item_out(i: ItemObra) -> dict:
+    d = {c.name: getattr(i, c.name) for c in i.__table__.columns}
+    d["total"] = i.cantidad * i.precio_unitario
+    d["total_albanil"] = i.cantidad * i.precio_unitario_albanil
+    return d
+
+
+@router.get("/{obra_id}/items", response_model=List[ItemOut])
+def listar_items(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
+    items = db.query(ItemObra).filter(ItemObra.obra_id == o.id).all()
+    items.sort(key=lambda i: _orden_natural(i.orden))
+    return [_item_out(i) for i in items]
+
+
+@router.post("/{obra_id}/items", response_model=ItemOut)
+def crear_item(
+    cliente_id: int,
+    obra_id: int,
+    datos: ItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    i = ItemObra(obra_id=o.id, **datos.model_dump())
+    db.add(i)
+    db.commit()
+    db.refresh(i)
+    return _item_out(i)
+
+
+@router.put("/{obra_id}/items/{item_id}", response_model=ItemOut)
+def actualizar_item(
+    cliente_id: int,
+    obra_id: int,
+    item_id: int,
+    datos: ItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    i = db.query(ItemObra).filter(ItemObra.id == item_id, ItemObra.obra_id == obra_id).first()
+    if not i:
+        raise HTTPException(status_code=404, detail="Ítem no encontrado")
+    for k, v in datos.model_dump(exclude_unset=True).items():
+        setattr(i, k, v)
+    db.commit()
+    db.refresh(i)
+    return _item_out(i)
+
+
+@router.delete("/{obra_id}/items/{item_id}")
+def eliminar_item(
+    cliente_id: int,
+    obra_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    i = db.query(ItemObra).filter(ItemObra.id == item_id, ItemObra.obra_id == obra_id).first()
+    if not i:
+        raise HTTPException(status_code=404, detail="Ítem no encontrado")
+    db.delete(i)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Importar ítems del cómputo desde Excel ─────────────────────────────────────
+
+_CAND_ORDEN       = ["orden", "item", "nro", "n°", "codigo", "código", "cod", "cod."]
+_CAND_DESIGNACION = ["designacion", "designación", "descripcion", "descripción", "detalle", "concepto", "item designacion"]
+_CAND_UNIDAD      = ["unidad", "un", "u", "und"]
+_CAND_CANTIDAD    = ["cantidad", "cant", "cant.", "qty"]
+_CAND_PRECIO_CLIENTE = ["precio cliente", "precio unitario cliente", "precio unitario", "p. unit. cliente", "precio", "p.unit", "precio unit."]
+_CAND_PRECIO_ALBANIL = ["precio albañil", "precio albanil", "precio unitario albañil", "precio unitario albanil", "p. unit. albañil", "p. unit. albanil", "precio obrero"]
+
+
+def _norm(txt) -> str:
+    return str(txt).strip().lower() if txt is not None else ""
+
+
+@router.post("/{obra_id}/items/importar-excel")
+async def importar_items_excel(
+    cliente_id: int,
+    obra_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Importa los ítems del cómputo desde un Excel: busca una fila de
+    encabezados con columnas de Designación y Cantidad (en cualquier
+    orden), y opcionalmente Orden, Unidad, Precio cliente y Precio
+    albañil. Crea un ítem por cada fila con datos.
+    """
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl no está instalado")
+
+    contenido = await archivo.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="No se pudo leer el archivo. ¿Es un .xlsx válido?")
+
+    ws = wb.active
+    filas = list(ws.iter_rows(values_only=True))
+    if not filas:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    idx_header = None
+    col = {}
+    for i, fila in enumerate(filas[:5]):
+        normal = [_norm(c) for c in fila]
+        col_desig = next((j for j, v in enumerate(normal) if v in _CAND_DESIGNACION), None)
+        col_cant = next((j for j, v in enumerate(normal) if v in _CAND_CANTIDAD), None)
+        if col_desig is not None and col_cant is not None:
+            idx_header = i
+            col["designacion"] = col_desig
+            col["cantidad"] = col_cant
+            col["orden"] = next((j for j, v in enumerate(normal) if v in _CAND_ORDEN), None)
+            col["unidad"] = next((j for j, v in enumerate(normal) if v in _CAND_UNIDAD), None)
+            col["precio_cliente"] = next((j for j, v in enumerate(normal) if v in _CAND_PRECIO_CLIENTE), None)
+            col["precio_albanil"] = next((j for j, v in enumerate(normal) if v in _CAND_PRECIO_ALBANIL), None)
+            break
+
+    if idx_header is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No encontré columnas de Designación y Cantidad en las primeras filas. Revisá los encabezados del Excel.",
+        )
+
+    def _valor(fila, key):
+        idx = col.get(key)
+        if idx is None or idx >= len(fila):
+            return None
+        return fila[idx]
+
+    creados = 0
+    omitidas = 0
+    avisos = []
+
+    for fila in filas[idx_header + 1:]:
+        if fila is None:
+            continue
+        desig = _valor(fila, "designacion")
+        if not desig or not str(desig).strip():
+            omitidas += 1
+            continue
+
+        def _dec(val, default=Decimal("0")):
+            if val is None:
+                return default
+            try:
+                return Decimal(str(val))
+            except Exception:
+                return default
+
+        orden_val = _valor(fila, "orden")
+        unidad_val = _valor(fila, "unidad")
+
+        i = ItemObra(
+            obra_id=o.id,
+            orden=str(orden_val).strip() if orden_val is not None else None,
+            designacion=str(desig).strip(),
+            unidad=str(unidad_val).strip() if unidad_val else None,
+            cantidad=_dec(_valor(fila, "cantidad")),
+            precio_unitario=_dec(_valor(fila, "precio_cliente")),
+            precio_unitario_albanil=_dec(_valor(fila, "precio_albanil")),
+        )
+        db.add(i)
+        creados += 1
+
+    if col.get("precio_cliente") is None:
+        avisos.append("No encontré columna de precio para la cuenta cliente — quedó en $0, cargalo manualmente.")
+    if col.get("precio_albanil") is None:
+        avisos.append("No encontré columna de precio para la cuenta albañil — quedó en $0, cargalo manualmente.")
+
+    db.commit()
+    return {"items_creados": creados, "filas_omitidas": omitidas, "avisos": avisos}
+
+
+# ── Certificados de avance ────────────────────────────────────────────────────
+
+def _certificado_out(cert: CertificadoAvance) -> dict:
+    items_out = []
+    ejecucion_mes = Decimal("0")
+    ejecucion_acum = Decimal("0")
+    ejecucion_mes_albanil = Decimal("0")
+    ejecucion_acum_albanil = Decimal("0")
+    for ci in cert.items:
+        items_out.append({
+            "id": ci.id,
+            "item_id": ci.item_id,
+            "designacion": ci.item.designacion if ci.item else None,
+            "unidad": ci.item.unidad if ci.item else None,
+            "pct_acum_anterior": ci.pct_acum_anterior,
+            "pct_acum_nuevo": ci.pct_acum_nuevo,
+            "pct_mes": ci.pct_mes,
+            "total_item_snapshot": ci.total_item_snapshot,
+            "monto_mes": ci.monto_mes,
+            "monto_acum": ci.monto_acum,
+            "saldo": ci.saldo,
+            "total_item_snapshot_albanil": ci.total_item_snapshot_albanil,
+            "monto_mes_albanil": ci.monto_mes_albanil,
+            "monto_acum_albanil": ci.monto_acum_albanil,
+            "saldo_albanil": ci.saldo_albanil,
+        })
+        ejecucion_mes += ci.monto_mes
+        ejecucion_acum += ci.monto_acum
+        ejecucion_mes_albanil += ci.monto_mes_albanil
+        ejecucion_acum_albanil += ci.monto_acum_albanil
+
+    return {
+        "id": cert.id,
+        "obra_id": cert.obra_id,
+        "numero": cert.numero,
+        "periodo": cert.periodo,
+        "fecha_certificado": cert.fecha_certificado,
+        "created_at": cert.created_at,
+        "ejecucion_mes": ejecucion_mes,
+        "ejecucion_acum": ejecucion_acum,
+        "ejecucion_mes_albanil": ejecucion_mes_albanil,
+        "ejecucion_acum_albanil": ejecucion_acum_albanil,
+        "items": items_out,
+    }
+
+
+@router.get("/{obra_id}/certificados", response_model=List[CertificadoOut])
+def listar_certificados(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
     certs = (
         db.query(CertificadoAvance)
         .filter(CertificadoAvance.obra_id == o.id)
         .order_by(CertificadoAvance.numero)
         .all()
     )
-    cert_periodo = next((c for c in certs if c.periodo == periodo), None)
+    return [_certificado_out(c) for c in certs]
 
+
+@router.post("/{obra_id}/certificados", response_model=CertificadoOut)
+def crear_certificado(
+    cliente_id: int,
+    obra_id: int,
+    datos: CertificadoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Carga el % acumulado de cada ítem para este período. El sistema calcula
+    automáticamente el % del mes, $ del mes, $ acumulado y saldo (sección 4.6).
+    Lo pueden cargar Gastón, Valentina o Valentín.
+    """
+    o = _get_obra(db, cliente_id, obra_id)
+    if not datos.items:
+        raise HTTPException(status_code=400, detail="Cargá el % de al menos un ítem")
+
+    numero = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .count()
+    ) + 1
+
+    cert = CertificadoAvance(
+        obra_id=o.id, numero=numero, periodo=datos.periodo,
+        fecha_certificado=datos.fecha_certificado,
+    )
+    db.add(cert)
+    db.flush()  # para tener cert.id antes del commit
+
+    for entrada in datos.items:
+        item = db.query(ItemObra).filter(
+            ItemObra.id == entrada.item_id, ItemObra.obra_id == o.id
+        ).first()
+        if not item:
+            db.rollback()
+            raise HTTPException(status_code=404, detail=f"Ítem {entrada.item_id} no encontrado en esta obra")
+
+        ultimo = (
+            db.query(CertificadoItem)
+            .join(CertificadoAvance, CertificadoItem.certificado_id == CertificadoAvance.id)
+            .filter(CertificadoItem.item_id == item.id, CertificadoAvance.obra_id == o.id)
+            .order_by(CertificadoAvance.numero.desc())
+            .first()
+        )
+        pct_acum_anterior = ultimo.pct_acum_nuevo if ultimo else Decimal("0")
+        pct_acum_nuevo = entrada.pct_acum_nuevo
+        pct_mes = pct_acum_nuevo - pct_acum_anterior
+
+        total_item = item.cantidad * item.precio_unitario
+        monto_mes = (pct_mes / Decimal("100")) * total_item
+        monto_acum = (pct_acum_nuevo / Decimal("100")) * total_item
+        saldo = total_item - monto_acum
+
+        total_item_albanil = item.cantidad * item.precio_unitario_albanil
+        monto_mes_albanil = (pct_mes / Decimal("100")) * total_item_albanil
+        monto_acum_albanil = (pct_acum_nuevo / Decimal("100")) * total_item_albanil
+        saldo_albanil = total_item_albanil - monto_acum_albanil
+
+        db.add(CertificadoItem(
+            certificado_id=cert.id, item_id=item.id,
+            pct_acum_anterior=pct_acum_anterior, pct_acum_nuevo=pct_acum_nuevo, pct_mes=pct_mes,
+            total_item_snapshot=total_item, monto_mes=monto_mes, monto_acum=monto_acum, saldo=saldo,
+            total_item_snapshot_albanil=total_item_albanil, monto_mes_albanil=monto_mes_albanil,
+            monto_acum_albanil=monto_acum_albanil, saldo_albanil=saldo_albanil,
+        ))
+
+    db.commit()
+    db.refresh(cert)
+    return _certificado_out(cert)
+
+
+@router.get("/{obra_id}/certificados/{certificado_id}", response_model=CertificadoOut)
+def obtener_certificado(
+    cliente_id: int,
+    obra_id: int,
+    certificado_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_obra(db, cliente_id, obra_id)
+    cert = db.query(CertificadoAvance).filter(
+        CertificadoAvance.id == certificado_id, CertificadoAvance.obra_id == obra_id
+    ).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+    return _certificado_out(cert)
+
+
+@router.delete("/{obra_id}/certificados/{certificado_id}")
+def eliminar_certificado(
+    cliente_id: int,
+    obra_id: int,
+    certificado_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    _get_obra(db, cliente_id, obra_id)
+    cert = db.query(CertificadoAvance).filter(
+        CertificadoAvance.id == certificado_id, CertificadoAvance.obra_id == obra_id
+    ).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+    db.delete(cert)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Resumen y curva ejecutado vs pagos ────────────────────────────────────────
+
+@router.get("/{obra_id}/resumen-certificados", response_model=ResumenCertificados)
+def resumen_certificados(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    o = _get_obra(db, cliente_id, obra_id)
+
+    presupuesto_base = sum((i.cantidad * i.precio_unitario for i in o.items_computo), Decimal("0"))
+    ajuste_ipc_acumulado = sum(
+        (m.monto_cliente for m in o.cronograma if m.es_ajuste_ipc and m.tipo == TipoMovimiento.cargo), Decimal("0")
+    )
+    total_actualizado = presupuesto_base + ajuste_ipc_acumulado
+
+    presupuesto_base_albanil = sum((i.cantidad * i.precio_unitario_albanil for i in o.items_computo), Decimal("0"))
+    ajuste_ipc_acumulado_albanil = sum(
+        (m.monto_albanil for m in o.cronograma if m.es_ajuste_ipc and m.tipo == TipoMovimiento.cargo), Decimal("0")
+    )
+    total_actualizado_albanil = presupuesto_base_albanil + ajuste_ipc_acumulado_albanil
+
+    ultimo_cert = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .order_by(CertificadoAvance.numero.desc())
+        .first()
+    )
     ejecucion_acumulada = Decimal("0")
-    if cert_periodo:
-        ejecucion_acumulada = sum((ci.monto_acum for ci in cert_periodo.items), Decimal("0"))
+    ejecucion_acumulada_albanil = Decimal("0")
+    if ultimo_cert:
+        ejecucion_acumulada = sum((ci.monto_acum for ci in ultimo_cert.items), Decimal("0"))
+        ejecucion_acumulada_albanil = sum((ci.monto_acum_albanil for ci in ultimo_cert.items), Decimal("0"))
 
-    # Curva (todos los certificados hasta el período elegido, cuenta cliente)
-    puntos_curva = []
+    saldo_pendiente = total_actualizado - ejecucion_acumulada
+    saldo_pendiente_albanil = total_actualizado_albanil - ejecucion_acumulada_albanil
+
+    return {
+        "presupuesto_base": presupuesto_base,
+        "ajuste_ipc_acumulado": ajuste_ipc_acumulado,
+        "total_actualizado": total_actualizado,
+        "ejecucion_acumulada": ejecucion_acumulada,
+        "saldo_pendiente": saldo_pendiente,
+        "presupuesto_base_albanil": presupuesto_base_albanil,
+        "ajuste_ipc_acumulado_albanil": ajuste_ipc_acumulado_albanil,
+        "total_actualizado_albanil": total_actualizado_albanil,
+        "ejecucion_acumulada_albanil": ejecucion_acumulada_albanil,
+        "saldo_pendiente_albanil": saldo_pendiente_albanil,
+    }
+
+
+@router.get("/{obra_id}/curva", response_model=CurvaOut)
+def curva_ejecutado_vs_pagos(
+    cliente_id: int,
+    obra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Serie temporal para graficar Ejecutado (certificados) vs Pagos acumulados
+    (cronograma), calculada en paralelo para cuenta cliente y cuenta albañil.
+    Alerta si en algún punto los pagos superan lo ejecutado (sección 4.8):
+    "El cliente pagó más de lo ejecutado" (o el equivalente para el albañil).
+    """
+    o = _get_obra(db, cliente_id, obra_id)
+    certs = (
+        db.query(CertificadoAvance)
+        .filter(CertificadoAvance.obra_id == o.id)
+        .order_by(CertificadoAvance.numero)
+        .all()
+    )
+
+    puntos = []
     alerta = False
-    for c in certs:
-        ejecutado_acum = sum((ci.monto_acum for ci in c.items), Decimal("0"))
-        if c.fecha_certificado:
+    alerta_albanil = False
+    for cert in certs:
+        ejecutado_acum = sum((ci.monto_acum for ci in cert.items), Decimal("0"))
+        ejecutado_acum_albanil = sum((ci.monto_acum_albanil for ci in cert.items), Decimal("0"))
+
+        if cert.fecha_certificado:
             pagos_acum = sum(
-                (cu.monto_pagado_cliente or Decimal("0"))
-                for cu in o.cronograma
-                if cu.estado == EstadoCuota.pagada and cu.fecha_pago and cu.fecha_pago <= c.fecha_certificado
+                (m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.pago and m.fecha <= cert.fecha_certificado),
+                Decimal("0"),
+            )
+            pagos_acum_albanil = sum(
+                (m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.pago and m.fecha <= cert.fecha_certificado),
+                Decimal("0"),
             )
         else:
             pagos_acum = sum(
-                (cu.monto_pagado_cliente or Decimal("0"))
-                for cu in o.cronograma if cu.estado == EstadoCuota.pagada
+                (m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0")
             )
+            pagos_acum_albanil = sum(
+                (m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0")
+            )
+
         if pagos_acum > ejecutado_acum:
             alerta = True
-        puntos_curva.append((c.periodo, float(ejecutado_acum), float(pagos_acum)))
-        if c.periodo == periodo:
-            break  # el informe muestra la curva hasta el período actual
+        if pagos_acum_albanil > ejecutado_acum_albanil:
+            alerta_albanil = True
 
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.units import mm
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
-            Image as RLImage, PageBreak,
-        )
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-        from reportlab.graphics.shapes import Drawing, Line, String, Rect
-        from xml.sax.saxutils import escape as _xml_escape
+        puntos.append({
+            "periodo": cert.periodo,
+            "fecha": cert.fecha_certificado,
+            "ejecutado_acum": ejecutado_acum,
+            "pagos_acum": pagos_acum,
+            "ejecutado_acum_albanil": ejecutado_acum_albanil,
+            "pagos_acum_albanil": pagos_acum_albanil,
+        })
 
-        def esc(t):
-            return _xml_escape(str(t)) if t is not None else ''
-
-        NARANJA    = colors.HexColor('#D4502A')
-        GRIS       = colors.HexColor('#3D4D52')
-        ARENA      = colors.HexColor('#B8977E')
-        CREMA      = colors.HexColor('#FBF6EE')
-        GRIS_FONDO = colors.HexColor('#F5F5F5')
-
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4,
-            leftMargin=18*mm, rightMargin=18*mm, topMargin=14*mm, bottomMargin=16*mm)
-
-        styles = getSampleStyleSheet()
-        def estilo(nombre, **kw):
-            return ParagraphStyle(nombre, parent=styles['Normal'], **kw)
-
-        s_normal  = estilo('normal', fontSize=9.5, textColor=colors.HexColor('#111'), leading=14)
-        s_small   = estilo('small', fontSize=8, textColor=GRIS)
-        s_banda   = estilo('banda', fontSize=11, textColor=colors.white, fontName='Helvetica-Bold', alignment=TA_CENTER)
-        s_semana  = estilo('semana', fontSize=10, textColor=NARANJA, fontName='Helvetica-Bold')
-
-        logo_path = os.path.abspath(LOGO_PATH)
-        story = []
-
-        def encabezado():
-            elems = []
-            elems.append(Table([['']], colWidths=[174*mm], rowHeights=[3*mm],
-                style=TableStyle([('BACKGROUND', (0, 0), (-1, -1), NARANJA)])))
-            elems.append(Spacer(1, 4*mm))
-            logo_img = RLImage(logo_path, width=16*mm, height=16*mm)
-            enc = Table([
-                [logo_img,
-                 Paragraph('<b>NODO</b> Ingeniería y Arquitectura<br/><font size="8" color="#888888">Informe mensual de avance</font>',
-                    estilo('enctit', fontSize=12, textColor=NARANJA, fontName='Helvetica-Bold', leading=16)),
-                 Paragraph(f'<b>{esc(o.nombre)}</b><br/><font size="8" color="#888888">{esc(periodo)}</font>',
-                    estilo('encder', fontSize=9, textColor=GRIS, alignment=TA_RIGHT))]
-            ], colWidths=[20*mm, 100*mm, 54*mm])
-            enc.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
-            elems.append(enc)
-            elems.append(Spacer(1, 5*mm))
-            return elems
-
-        def bloque_semana(numero):
-          s_data = seguimientos.get(numero)
-          bloque = []
-          bloque.append(Table([[Paragraph(f'SEMANA {numero}', s_banda)]],
-              colWidths=[174*mm], rowHeights=[7*mm],
-              style=TableStyle([('BACKGROUND', (0, 0), (-1, -1), GRIS), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')])))
-          bloque.append(Spacer(1, 2*mm))
-          if not s_data or (not s_data.descripcion and not s_data.foto_url_1 and not s_data.foto_url_2):
-              bloque.append(Paragraph('Sin novedades cargadas para esta semana.', s_small))
-          else:
-              if s_data.descripcion:
-                  bloque.append(Paragraph(esc(s_data.descripcion), s_normal))
-              fotos = []
-              for url in (s_data.foto_url_1, s_data.foto_url_2):
-                  img_data = _descargar_imagen(url)
-                  if img_data:
-                      try:
-                          fotos.append(RLImage(img_data, width=82*mm, height=60*mm))
-                      except Exception:
-                          pass
-              if fotos:
-                  bloque.append(Spacer(1, 3*mm))
-                  if len(fotos) == 2:
-                      t = Table([fotos], colWidths=[87*mm, 87*mm])
-                      t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
-                      bloque.append(t)
-                  else:
-                      bloque.append(fotos[0])
-          bloque.append(Spacer(1, 6*mm))
-          return bloque
-
-        # ── Página 1: semanas 1 y 2 ──
-        story += encabezado()
-        story += bloque_semana(1)
-        story += bloque_semana(2)
-        story.append(PageBreak())
-
-        # ── Página 2: semanas 3, 4 y síntesis del mes ──
-        story += encabezado()
-        story += bloque_semana(3)
-        story += bloque_semana(4)
-
-        story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#e5e5e5')))
-        story.append(Spacer(1, 3*mm))
-        texto_sintesis = sintesis.texto if sintesis and sintesis.texto else 'Sin síntesis cargada para este período.'
-        sintesis_tabla = Table(
-            [[Paragraph('<b>SÍNTESIS DEL MES</b>', estilo('sinttit', fontSize=10, textColor=GRIS, fontName='Helvetica-Bold'))],
-             [Paragraph(esc(texto_sintesis), s_normal)]],
-            colWidths=[174*mm])
-        sintesis_tabla.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), CREMA),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 10),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ]))
-        story.append(sintesis_tabla)
-        story.append(PageBreak())
-
-        # ── Página 3: ejecución acumulada + curva ──
-        story += encabezado()
-        story.append(Table([[Paragraph('EJECUCIÓN ACUMULADA', s_banda)]],
-            colWidths=[174*mm], rowHeights=[7*mm],
-            style=TableStyle([('BACKGROUND', (0, 0), (-1, -1), NARANJA), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')])))
-        story.append(Spacer(1, 4*mm))
-
-        monto_fmt = f"$ {float(ejecucion_acumulada):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-        story.append(Paragraph(monto_fmt, estilo('ejec', fontSize=20, textColor=NARANJA, fontName='Helvetica-Bold')))
-        story.append(Spacer(1, 6*mm))
-
-        if alerta:
-            aviso = Table([[Paragraph('⚠ En algún período los pagos superaron lo ejecutado.',
-                estilo('aviso', fontSize=9, textColor=colors.HexColor('#991b1b'), fontName='Helvetica-Bold'))]],
-                colWidths=[174*mm])
-            aviso.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef2f2')),
-                ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ('LEFTPADDING', (0, 0), (-1, -1), 10),
-            ]))
-            story.append(aviso)
-            story.append(Spacer(1, 6*mm))
-
-        if len(puntos_curva) >= 1:
-            story.append(Paragraph('CURVA: EJECUTADO VS. PAGOS', estilo('curvtit', fontSize=10, textColor=GRIS, fontName='Helvetica-Bold')))
-            story.append(Spacer(1, 4*mm))
-
-            W, H = 174*mm, 70*mm
-            d = Drawing(W, H)
-            max_val = max([1.0] + [p[1] for p in puntos_curva] + [p[2] for p in puntos_curva])
-            pad_l, pad_b, pad_t = 12*mm, 12*mm, 4*mm
-            plot_w = W - pad_l - 4*mm
-            plot_h = H - pad_b - pad_t
-            n = len(puntos_curva)
-            step_x = plot_w / (n - 1) if n > 1 else 0
-
-            def px(i):
-                return pad_l + i * step_x
-
-            def py(val):
-                return pad_b + (val / max_val) * plot_h
-
-            d.add(Line(pad_l, pad_b, pad_l + plot_w, pad_b, strokeColor=colors.HexColor('#cccccc')))
-
-            pts_ejec = []
-            pts_pago = []
-            for i, (per, ejec, pago) in enumerate(puntos_curva):
-                pts_ejec.append((px(i), py(ejec)))
-                pts_pago.append((px(i), py(pago)))
-                d.add(String(px(i), pad_b - 8, per[:8], fontSize=6, fillColor=GRIS, textAnchor='middle'))
-
-            for i in range(len(pts_ejec) - 1):
-                d.add(Line(pts_ejec[i][0], pts_ejec[i][1], pts_ejec[i+1][0], pts_ejec[i+1][1],
-                    strokeColor=NARANJA, strokeWidth=2))
-            for i in range(len(pts_pago) - 1):
-                d.add(Line(pts_pago[i][0], pts_pago[i][1], pts_pago[i+1][0], pts_pago[i+1][1],
-                    strokeColor=colors.HexColor('#999999'), strokeWidth=1.5, strokeDashArray=[3, 2]))
-
-            for x, y in pts_ejec:
-                d.add(Rect(x-1.5, y-1.5, 3, 3, fillColor=NARANJA, strokeColor=None))
-            for x, y in pts_pago:
-                d.add(Rect(x-1.2, y-1.2, 2.4, 2.4, fillColor=colors.HexColor('#999999'), strokeColor=None))
-
-            story.append(d)
-            story.append(Spacer(1, 2*mm))
-            leyenda = Table([[
-                Paragraph('<font color="#D4502A">━━</font> Ejecutado', s_small),
-                Paragraph('<font color="#999999">┅┅</font> Pagos', s_small),
-            ]], colWidths=[87*mm, 87*mm])
-            story.append(leyenda)
-
-        story.append(Spacer(1, 10*mm))
-        pie = Table(
-            [['NODO Ingeniería y Arquitectura', 'Salta 246, Pozo del Molle', '@nodo.ing.arq']],
-            colWidths=[58*mm, 58*mm, 58*mm], rowHeights=[7*mm])
-        pie.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, 0), NARANJA),
-            ('BACKGROUND', (1, 0), (1, 0), GRIS),
-            ('BACKGROUND', (2, 0), (2, 0), ARENA),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
-            ('FONTSIZE', (0, 0), (-1, -1), 7),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
-        story.append(pie)
-
-        doc.build(story)
-        buffer.seek(0)
-
-        # Registrar la emisión en el historial (numeración correlativa por obra)
-        numero_secuencia = db.query(InformeGenerado).filter(InformeGenerado.obra_id == o.id).count() + 1
-        anio = datetime.now().year
-        numero = f"INF-{anio}-{str(numero_secuencia).zfill(3)}"
-        db.add(InformeGenerado(
-            obra_id=o.id, numero=numero, periodo=periodo, usuario_id=current_user.id,
-        ))
-        db.commit()
-
-        nombre_archivo = f"informe_{o.nombre.replace(' ', '_')}_{periodo.replace(' ', '_')}.pdf"
-        return StreamingResponse(buffer, media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"})
-
-    except ImportError:
-        raise HTTPException(status_code=500, detail="ReportLab no está instalado")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generando el informe: {str(e)}")
+    return {"puntos": puntos, "alerta": alerta, "alerta_albanil": alerta_albanil}
