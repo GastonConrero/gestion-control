@@ -16,9 +16,9 @@ class EstadoObra(str, enum.Enum):
     cancelada = "cancelada"
 
 
-class EstadoCuota(str, enum.Enum):
-    pendiente = "pendiente"
-    pagada    = "pagada"
+class TipoMovimiento(str, enum.Enum):
+    cargo = "cargo"  # aumenta lo que se debe (presupuesto inicial, adicionales, ajustes IPC)
+    pago  = "pago"   # reduce lo que se debe (dinero efectivamente cobrado/pagado)
 
 
 class Obra(Base):
@@ -48,8 +48,8 @@ class Obra(Base):
     cliente               = relationship("Cliente", back_populates="obras")
     presupuesto           = relationship("Presupuesto")
     cronograma            = relationship(
-        "CronogramaCuota", back_populates="obra",
-        cascade="all, delete-orphan", order_by="CronogramaCuota.numero"
+        "MovimientoCronograma", back_populates="obra",
+        cascade="all, delete-orphan", order_by="MovimientoCronograma.fecha, MovimientoCronograma.id"
     )
     items_computo         = relationship(
         "ItemObra", back_populates="obra",
@@ -70,57 +70,35 @@ class Obra(Base):
     )
 
 
-class CronogramaCuota(Base):
+class MovimientoCronograma(Base):
     """
-    Cuota del cronograma de pagos. Cada cuota lleva DOS cuentas paralelas:
-    - cliente: cuenta con costo empresa (lo que paga el cliente)
-    - albanil: cuenta sin costo empresa (lo que se le gira al albañil/contratista)
-    Los ajustes IPC se guardan en pesos (no en %), aplicados sobre el saldo
-    pendiente de cada cuenta con la fórmula compuesta (sección 4.7).
+    Cronograma de pagos como cuenta corriente (no cuotas fijas): una
+    secuencia de movimientos por fecha, cada uno "cargo" (aumenta lo
+    debido: presupuesto inicial, adicionales, ajustes IPC) o "pago"
+    (dinero efectivamente cobrado, reduce lo debido). El saldo pendiente
+    es siempre la suma acumulada de cargos menos pagos. Los ajustes IPC
+    se aplican sobre el saldo pendiente total en ese momento (no sobre
+    un movimiento puntual), y como el saldo ya arrastra los ajustes
+    previos, el resultado es naturalmente compuesto.
+    Cada movimiento lleva dos cuentas paralelas (cliente / albañil).
     """
-    __tablename__ = "cronograma_cuotas"
+    __tablename__ = "movimientos_cronograma"
 
-    id                     = Column(Integer, primary_key=True, index=True)
-    obra_id                = Column(Integer, ForeignKey("obras.id"), nullable=False)
+    id             = Column(Integer, primary_key=True, index=True)
+    obra_id        = Column(Integer, ForeignKey("obras.id"), nullable=False)
 
-    numero                 = Column(Integer, nullable=False)
-    descripcion            = Column(String, nullable=True)  # ej "Cuota 1", "Anticipo"
-    fecha_prevista         = Column(Date, nullable=True)
+    fecha          = Column(Date, nullable=False)
+    tipo           = Column(Enum(TipoMovimiento), nullable=False)
 
-    # Montos base proyectados (antes de ajustes IPC)
-    monto_cliente          = Column(Numeric(14, 2), nullable=False, default=0)
-    monto_albanil          = Column(Numeric(14, 2), nullable=False, default=0)
+    monto_cliente  = Column(Numeric(14, 2), nullable=False, default=0)
+    monto_albanil  = Column(Numeric(14, 2), nullable=False, default=0)
 
-    # Ajustes IPC acumulados en pesos (se suman al monto base para dar el saldo actualizado)
-    ajuste_ipc_cliente     = Column(Numeric(14, 2), nullable=False, default=0)
-    ajuste_ipc_albanil     = Column(Numeric(14, 2), nullable=False, default=0)
+    concepto       = Column(Text, nullable=True)  # ej "Ajuste por IPC 1,5%", "Instalación de cloacas etapa 1"
+    es_ajuste_ipc  = Column(Boolean, nullable=False, default=False)
 
-    estado                 = Column(Enum(EstadoCuota), nullable=False, default=EstadoCuota.pendiente)
-    fecha_pago             = Column(Date, nullable=True)
-    monto_pagado_cliente   = Column(Numeric(14, 2), nullable=True)
-    monto_pagado_albanil   = Column(Numeric(14, 2), nullable=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
 
-    notas                  = Column(Text, nullable=True)
-    created_at             = Column(DateTime(timezone=True), server_default=func.now())
-
-    obra                   = relationship("Obra", back_populates="cronograma")
-
-
-class AjusteIPCHistorial(Base):
-    """Auditoría de cada aplicación de ajuste IPC sobre una cuota (fecha, % usado, resultado)."""
-    __tablename__ = "ajustes_ipc_historial"
-
-    id                  = Column(Integer, primary_key=True, index=True)
-    cuota_id            = Column(Integer, ForeignKey("cronograma_cuotas.id"), nullable=False)
-    ipc_pct             = Column(Numeric(6, 3), nullable=False)
-    fuente              = Column(String, nullable=True)  # "estimado" o "indec"
-    ajuste_cliente      = Column(Numeric(14, 2), nullable=False, default=0)
-    ajuste_albanil      = Column(Numeric(14, 2), nullable=False, default=0)
-    saldo_cliente_previo = Column(Numeric(14, 2), nullable=True)
-    saldo_albanil_previo = Column(Numeric(14, 2), nullable=True)
-    created_at          = Column(DateTime(timezone=True), server_default=func.now())
-
-    cuota               = relationship("CronogramaCuota")
+    obra           = relationship("Obra", back_populates="cronograma")
 
 
 class ItemObra(Base):
