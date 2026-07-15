@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.obra import (
-    Obra, CronogramaCuota, AjusteIPCHistorial, EstadoCuota,
+    Obra, MovimientoCronograma, TipoMovimiento,
     ItemObra, CertificadoAvance, CertificadoItem,
 )
 from app.models.cliente import Cliente
@@ -18,7 +18,8 @@ from app.models.materiales import ListadoMateriales
 from app.models.analisis_inversion import AnalisisInversion
 from app.schemas.obra import (
     ObraCreate, ObraUpdate, ObraOut,
-    CuotaCreate, CuotaUpdate, CuotaOut, PagarCuota, AjustarIPC, AjusteIPCOut,
+    MovimientoCreate, MovimientoUpdate, MovimientoOut, AplicarAjusteIPC,
+    ResumenCronograma, ImportarCronogramaResultado,
     VincularPresupuesto,
     ItemCreate, ItemUpdate, ItemOut,
     CertificadoCreate, CertificadoOut, CertificadoItemOut,
@@ -65,13 +66,28 @@ def _get_obra(db: Session, cliente_id: int, obra_id: int) -> Obra:
     return o
 
 
-def _get_cuota(db: Session, obra_id: int, cuota_id: int) -> CronogramaCuota:
-    c = db.query(CronogramaCuota).filter(
-        CronogramaCuota.id == cuota_id, CronogramaCuota.obra_id == obra_id
+def _get_movimiento(db: Session, obra_id: int, movimiento_id: int) -> MovimientoCronograma:
+    m = db.query(MovimientoCronograma).filter(
+        MovimientoCronograma.id == movimiento_id, MovimientoCronograma.obra_id == obra_id
     ).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Cuota no encontrada")
-    return c
+    if not m:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+    return m
+
+
+def _totales_cronograma(o: Obra) -> dict:
+    total_cargos_cliente = sum((m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.cargo), Decimal("0"))
+    total_pagos_cliente = sum((m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0"))
+    total_cargos_albanil = sum((m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.cargo), Decimal("0"))
+    total_pagos_albanil = sum((m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0"))
+    return {
+        "total_cargos_cliente": total_cargos_cliente,
+        "total_pagos_cliente": total_pagos_cliente,
+        "saldo_cliente": total_cargos_cliente - total_pagos_cliente,
+        "total_cargos_albanil": total_cargos_albanil,
+        "total_pagos_albanil": total_pagos_albanil,
+        "saldo_albanil": total_cargos_albanil - total_pagos_albanil,
+    }
 
 
 def _enriquecer_obra(o: Obra, es_gaston: bool) -> dict:
@@ -79,14 +95,11 @@ def _enriquecer_obra(o: Obra, es_gaston: bool) -> dict:
     d["presupuesto_numero"] = o.presupuesto.numero if o.presupuesto else None
 
     if es_gaston:
-        total_cliente = sum((c.monto_cliente + c.ajuste_ipc_cliente) for c in o.cronograma) if o.cronograma else Decimal("0")
-        total_albanil = sum((c.monto_albanil + c.ajuste_ipc_albanil) for c in o.cronograma) if o.cronograma else Decimal("0")
-        pagado_cliente = sum((c.monto_pagado_cliente or 0) for c in o.cronograma) if o.cronograma else Decimal("0")
-        pagado_albanil = sum((c.monto_pagado_albanil or 0) for c in o.cronograma) if o.cronograma else Decimal("0")
-        d["total_cliente"] = total_cliente
-        d["total_albanil"] = total_albanil
-        d["pagado_cliente"] = pagado_cliente
-        d["pagado_albanil"] = pagado_albanil
+        t = _totales_cronograma(o)
+        d["total_cliente"] = t["total_cargos_cliente"]
+        d["total_albanil"] = t["total_cargos_albanil"]
+        d["pagado_cliente"] = t["total_pagos_cliente"]
+        d["pagado_albanil"] = t["total_pagos_albanil"]
     else:
         d["total_cliente"] = None
         d["total_albanil"] = None
@@ -96,11 +109,21 @@ def _enriquecer_obra(o: Obra, es_gaston: bool) -> dict:
     return d
 
 
-def _cuota_con_saldo(c: CronogramaCuota) -> dict:
-    d = {col.name: getattr(c, col.name) for col in c.__table__.columns}
-    d["saldo_cliente"] = c.monto_cliente + c.ajuste_ipc_cliente
-    d["saldo_albanil"] = c.monto_albanil + c.ajuste_ipc_albanil
-    return d
+def _movimientos_con_saldo(movimientos: list) -> list:
+    """Ordena por fecha y calcula el saldo acumulado (cargos - pagos) hasta cada movimiento."""
+    ordenados = sorted(movimientos, key=lambda m: (m.fecha, m.id))
+    saldo_cliente = Decimal("0")
+    saldo_albanil = Decimal("0")
+    salida = []
+    for m in ordenados:
+        signo = 1 if m.tipo == TipoMovimiento.cargo else -1
+        saldo_cliente += signo * m.monto_cliente
+        saldo_albanil += signo * m.monto_albanil
+        d = {c.name: getattr(m, c.name) for c in m.__table__.columns}
+        d["saldo_cliente_acumulado"] = saldo_cliente
+        d["saldo_albanil_acumulado"] = saldo_albanil
+        salida.append(d)
+    return salida
 
 
 # ── Obra: datos generales ────────────────────────────────────────────────────
@@ -257,7 +280,9 @@ def regenerar_link_portal(
 
 # ── Cronograma de pagos ──────────────────────────────────────────────────────
 
-@router.get("/{obra_id}/cronograma", response_model=List[CuotaOut])
+# ── Cronograma de pagos (cuenta corriente) ────────────────────────────────────
+
+@router.get("/{obra_id}/cronograma", response_model=List[MovimientoOut])
 def listar_cronograma(
     cliente_id: int,
     obra_id: int,
@@ -266,150 +291,240 @@ def listar_cronograma(
 ):
     _solo_gaston(current_user)
     o = _get_obra(db, cliente_id, obra_id)
-    return [_cuota_con_saldo(c) for c in o.cronograma]
+    return _movimientos_con_saldo(o.cronograma)
 
 
-@router.post("/{obra_id}/cronograma", response_model=CuotaOut)
-def crear_cuota(
+@router.get("/{obra_id}/cronograma/resumen", response_model=ResumenCronograma)
+def resumen_cronograma(
     cliente_id: int,
     obra_id: int,
-    datos: CuotaCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _solo_gaston(current_user)
     o = _get_obra(db, cliente_id, obra_id)
-    c = CronogramaCuota(obra_id=o.id, **datos.model_dump())
-    db.add(c)
-    db.commit()
-    db.refresh(c)
-    return _cuota_con_saldo(c)
+    return _totales_cronograma(o)
 
 
-@router.put("/{obra_id}/cronograma/{cuota_id}", response_model=CuotaOut)
-def actualizar_cuota(
+@router.post("/{obra_id}/cronograma", response_model=MovimientoOut)
+def crear_movimiento(
     cliente_id: int,
     obra_id: int,
-    cuota_id: int,
-    datos: CuotaUpdate,
+    datos: MovimientoCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _solo_gaston(current_user)
-    _get_obra(db, cliente_id, obra_id)
-    c = _get_cuota(db, obra_id, cuota_id)
+    o = _get_obra(db, cliente_id, obra_id)
+    m = MovimientoCronograma(obra_id=o.id, **datos.model_dump())
+    db.add(m)
+    db.commit()
+    db.refresh(o)
+    return next(x for x in _movimientos_con_saldo(o.cronograma) if x["id"] == m.id)
+
+
+@router.put("/{obra_id}/cronograma/{movimiento_id}", response_model=MovimientoOut)
+def actualizar_movimiento(
+    cliente_id: int,
+    obra_id: int,
+    movimiento_id: int,
+    datos: MovimientoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _solo_gaston(current_user)
+    o = _get_obra(db, cliente_id, obra_id)
+    m = _get_movimiento(db, obra_id, movimiento_id)
     for k, v in datos.model_dump(exclude_unset=True).items():
-        setattr(c, k, v)
+        setattr(m, k, v)
     db.commit()
-    db.refresh(c)
-    return _cuota_con_saldo(c)
+    db.refresh(o)
+    return next(x for x in _movimientos_con_saldo(o.cronograma) if x["id"] == m.id)
 
 
-@router.delete("/{obra_id}/cronograma/{cuota_id}")
-def eliminar_cuota(
+@router.delete("/{obra_id}/cronograma/{movimiento_id}")
+def eliminar_movimiento(
     cliente_id: int,
     obra_id: int,
-    cuota_id: int,
+    movimiento_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _solo_gaston(current_user)
     _get_obra(db, cliente_id, obra_id)
-    c = _get_cuota(db, obra_id, cuota_id)
-    db.delete(c)
+    m = _get_movimiento(db, obra_id, movimiento_id)
+    db.delete(m)
     db.commit()
     return {"ok": True}
 
 
-@router.post("/{obra_id}/cronograma/{cuota_id}/pagar", response_model=CuotaOut)
-def pagar_cuota(
-    cliente_id: int,
-    obra_id: int,
-    cuota_id: int,
-    datos: PagarCuota,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    _solo_gaston(current_user)
-    _get_obra(db, cliente_id, obra_id)
-    c = _get_cuota(db, obra_id, cuota_id)
-
-    c.estado = EstadoCuota.pagada
-    c.fecha_pago = datos.fecha_pago or date.today()
-    # Si no se especifica monto pagado, se toma el saldo actual (base + ajustes) como pagado
-    c.monto_pagado_cliente = datos.monto_pagado_cliente if datos.monto_pagado_cliente is not None else (c.monto_cliente + c.ajuste_ipc_cliente)
-    c.monto_pagado_albanil = datos.monto_pagado_albanil if datos.monto_pagado_albanil is not None else (c.monto_albanil + c.ajuste_ipc_albanil)
-    db.commit()
-    db.refresh(c)
-    return _cuota_con_saldo(c)
-
-
-@router.post("/{obra_id}/cronograma/{cuota_id}/ajustar-ipc", response_model=AjusteIPCOut)
+@router.post("/{obra_id}/cronograma/ajustar-ipc", response_model=MovimientoOut)
 def ajustar_ipc(
     cliente_id: int,
     obra_id: int,
-    cuota_id: int,
-    datos: AjustarIPC,
+    datos: AplicarAjusteIPC,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Aplica el ajuste IPC compuesto sobre el saldo pendiente de la cuota
-    (fórmula sección 4.7 del documento base):
+    Aplica el ajuste IPC compuesto sobre el SALDO PENDIENTE TOTAL a la
+    fecha indicada (no sobre un movimiento puntual): como el saldo ya
+    arrastra los ajustes previos, el resultado es naturalmente compuesto
         ajuste = saldo * (1 + ipc/100) - saldo
-    Se aplica de forma independiente a cada cuenta (cliente / albañil) y
-    se acumula sobre los ajustes previos. Queda registrado en el historial
-    para auditoría.
+    y se registra como un nuevo movimiento tipo "cargo".
     """
     _solo_gaston(current_user)
-    _get_obra(db, cliente_id, obra_id)
-    c = _get_cuota(db, obra_id, cuota_id)
+    o = _get_obra(db, cliente_id, obra_id)
 
-    if c.estado == EstadoCuota.pagada:
-        raise HTTPException(status_code=400, detail="No se puede ajustar una cuota ya pagada")
-
-    saldo_cliente_previo = c.monto_cliente + c.ajuste_ipc_cliente
-    saldo_albanil_previo = c.monto_albanil + c.ajuste_ipc_albanil
+    movs_previos = [m for m in o.cronograma if m.fecha <= datos.fecha]
+    saldo_cliente = sum(
+        ((m.monto_cliente if m.tipo == TipoMovimiento.cargo else -m.monto_cliente) for m in movs_previos),
+        Decimal("0"),
+    )
+    saldo_albanil = sum(
+        ((m.monto_albanil if m.tipo == TipoMovimiento.cargo else -m.monto_albanil) for m in movs_previos),
+        Decimal("0"),
+    )
 
     factor = (Decimal("1") + (datos.ipc_pct / Decimal("100")))
-    nuevo_ajuste_cliente = (saldo_cliente_previo * factor) - saldo_cliente_previo
-    nuevo_ajuste_albanil = (saldo_albanil_previo * factor) - saldo_albanil_previo
+    ajuste_cliente = (saldo_cliente * factor - saldo_cliente) if datos.cuenta in ("cliente", "ambas") else Decimal("0")
+    ajuste_albanil = (saldo_albanil * factor - saldo_albanil) if datos.cuenta in ("albanil", "ambas") else Decimal("0")
 
-    c.ajuste_ipc_cliente = c.ajuste_ipc_cliente + nuevo_ajuste_cliente
-    c.ajuste_ipc_albanil = c.ajuste_ipc_albanil + nuevo_ajuste_albanil
-
-    historial = AjusteIPCHistorial(
-        cuota_id=c.id,
-        ipc_pct=datos.ipc_pct,
-        fuente=datos.fuente,
-        ajuste_cliente=nuevo_ajuste_cliente,
-        ajuste_albanil=nuevo_ajuste_albanil,
-        saldo_cliente_previo=saldo_cliente_previo,
-        saldo_albanil_previo=saldo_albanil_previo,
+    concepto = f"Ajuste por IPC {datos.ipc_pct}% ({datos.fuente or 'estimado'})"
+    m = MovimientoCronograma(
+        obra_id=o.id, fecha=datos.fecha, tipo=TipoMovimiento.cargo,
+        monto_cliente=ajuste_cliente, monto_albanil=ajuste_albanil,
+        concepto=concepto, es_ajuste_ipc=True,
     )
-    db.add(historial)
+    db.add(m)
     db.commit()
-    db.refresh(historial)
-    return historial
+    db.refresh(o)
+    return next(x for x in _movimientos_con_saldo(o.cronograma) if x["id"] == m.id)
 
 
-@router.get("/{obra_id}/cronograma/{cuota_id}/historial-ipc", response_model=List[AjusteIPCOut])
-def historial_ipc(
+# ── Importar cronograma desde Excel ───────────────────────────────────────────
+
+_CRON_CAND_FECHA = ["fecha"]
+_CRON_CAND_PRESUPUESTO = ["presupuesto", "cargo", "cargos"]
+_CRON_CAND_PAGOS = ["pagos", "pago"]
+_CRON_CAND_OBS = ["observaciones", "observacion", "observación", "concepto", "detalle"]
+
+
+@router.post("/{obra_id}/cronograma/importar-excel", response_model=ImportarCronogramaResultado)
+async def importar_cronograma_excel(
     cliente_id: int,
     obra_id: int,
-    cuota_id: int,
+    archivo: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Importa el cronograma desde un Excel tipo cuenta corriente: columnas
+    Fecha, Presupuesto (cargo) y/o Pagos, y Observaciones. La columna
+    "Resto" se ignora (el sistema la recalcula). Las filas con
+    observaciones que mencionen "ipc" o "ajuste" se marcan como ajuste IPC.
+    """
     _solo_gaston(current_user)
-    _get_obra(db, cliente_id, obra_id)
-    _get_cuota(db, obra_id, cuota_id)
-    return (
-        db.query(AjusteIPCHistorial)
-        .filter(AjusteIPCHistorial.cuota_id == cuota_id)
-        .order_by(AjusteIPCHistorial.created_at.desc())
-        .all()
-    )
+    o = _get_obra(db, cliente_id, obra_id)
+
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl no está instalado")
+
+    contenido = await archivo.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="No se pudo leer el archivo. ¿Es un .xlsx válido?")
+
+    ws = wb.active
+    filas = list(ws.iter_rows(values_only=True))
+    if not filas:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    idx_header = None
+    col = {}
+    for i, fila in enumerate(filas[:5]):
+        normal = [_norm(c) for c in fila]
+        col_fecha = next((j for j, v in enumerate(normal) if v in _CRON_CAND_FECHA), None)
+        if col_fecha is not None:
+            idx_header = i
+            col["fecha"] = col_fecha
+            col["presupuesto"] = next((j for j, v in enumerate(normal) if v in _CRON_CAND_PRESUPUESTO), None)
+            col["pagos"] = next((j for j, v in enumerate(normal) if v in _CRON_CAND_PAGOS), None)
+            col["obs"] = next((j for j, v in enumerate(normal) if v in _CRON_CAND_OBS), None)
+            break
+
+    if idx_header is None:
+        raise HTTPException(status_code=400, detail="No encontré una columna 'Fecha'. Revisá los encabezados del Excel.")
+    if col.get("presupuesto") is None and col.get("pagos") is None:
+        raise HTTPException(status_code=400, detail="No encontré columnas 'Presupuesto' ni 'Pagos'.")
+
+    def _valor(fila, key):
+        idx = col.get(key)
+        if idx is None or idx >= len(fila):
+            return None
+        return fila[idx]
+
+    def _dec_abs(val):
+        if val is None:
+            return None
+        try:
+            return abs(Decimal(str(val)))
+        except Exception:
+            return None
+
+    creados = 0
+    omitidas = 0
+    avisos = []
+
+    for fila in filas[idx_header + 1:]:
+        if fila is None:
+            continue
+        fecha_val = _valor(fila, "fecha")
+        if not fecha_val:
+            omitidas += 1
+            continue
+        try:
+            if isinstance(fecha_val, str):
+                fecha = date.fromisoformat(fecha_val[:10])
+            else:
+                fecha = fecha_val.date() if hasattr(fecha_val, "date") else fecha_val
+        except Exception:
+            omitidas += 1
+            avisos.append(f"No pude leer la fecha '{fecha_val}', fila omitida.")
+            continue
+
+        obs = _valor(fila, "obs")
+        obs_txt = str(obs).strip() if obs else None
+        es_ajuste = bool(obs_txt) and ("ipc" in obs_txt.lower() or "ajuste" in obs_txt.lower())
+
+        monto_cargo = _dec_abs(_valor(fila, "presupuesto"))
+        monto_pago = _dec_abs(_valor(fila, "pagos"))
+
+        if monto_cargo:
+            db.add(MovimientoCronograma(
+                obra_id=o.id, fecha=fecha, tipo=TipoMovimiento.cargo,
+                monto_cliente=monto_cargo, monto_albanil=Decimal("0"),
+                concepto=obs_txt, es_ajuste_ipc=es_ajuste,
+            ))
+            creados += 1
+        if monto_pago:
+            db.add(MovimientoCronograma(
+                obra_id=o.id, fecha=fecha, tipo=TipoMovimiento.pago,
+                monto_cliente=monto_pago, monto_albanil=Decimal("0"),
+                concepto=obs_txt, es_ajuste_ipc=False,
+            ))
+            creados += 1
+        if not monto_cargo and not monto_pago:
+            omitidas += 1
+
+    if creados > 0:
+        avisos.append("Los montos se importaron a la cuenta cliente. La cuenta albañil quedó en $0 — cargala manualmente si corresponde.")
+
+    db.commit()
+    return {"movimientos_creados": creados, "filas_omitidas": omitidas, "avisos": avisos}
 
 
 # ── Ítems del cómputo ─────────────────────────────────────────────────────────
@@ -793,11 +908,15 @@ def resumen_certificados(
     o = _get_obra(db, cliente_id, obra_id)
 
     presupuesto_base = sum((i.cantidad * i.precio_unitario for i in o.items_computo), Decimal("0"))
-    ajuste_ipc_acumulado = sum((c.ajuste_ipc_cliente for c in o.cronograma), Decimal("0"))
+    ajuste_ipc_acumulado = sum(
+        (m.monto_cliente for m in o.cronograma if m.es_ajuste_ipc and m.tipo == TipoMovimiento.cargo), Decimal("0")
+    )
     total_actualizado = presupuesto_base + ajuste_ipc_acumulado
 
     presupuesto_base_albanil = sum((i.cantidad * i.precio_unitario_albanil for i in o.items_computo), Decimal("0"))
-    ajuste_ipc_acumulado_albanil = sum((c.ajuste_ipc_albanil for c in o.cronograma), Decimal("0"))
+    ajuste_ipc_acumulado_albanil = sum(
+        (m.monto_albanil for m in o.cronograma if m.es_ajuste_ipc and m.tipo == TipoMovimiento.cargo), Decimal("0")
+    )
     total_actualizado_albanil = presupuesto_base_albanil + ajuste_ipc_acumulado_albanil
 
     ultimo_cert = (
@@ -859,23 +978,19 @@ def curva_ejecutado_vs_pagos(
 
         if cert.fecha_certificado:
             pagos_acum = sum(
-                (c.monto_pagado_cliente or Decimal("0"))
-                for c in o.cronograma
-                if c.estado == EstadoCuota.pagada and c.fecha_pago and c.fecha_pago <= cert.fecha_certificado
+                (m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.pago and m.fecha <= cert.fecha_certificado),
+                Decimal("0"),
             )
             pagos_acum_albanil = sum(
-                (c.monto_pagado_albanil or Decimal("0"))
-                for c in o.cronograma
-                if c.estado == EstadoCuota.pagada and c.fecha_pago and c.fecha_pago <= cert.fecha_certificado
+                (m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.pago and m.fecha <= cert.fecha_certificado),
+                Decimal("0"),
             )
         else:
             pagos_acum = sum(
-                (c.monto_pagado_cliente or Decimal("0"))
-                for c in o.cronograma if c.estado == EstadoCuota.pagada
+                (m.monto_cliente for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0")
             )
             pagos_acum_albanil = sum(
-                (c.monto_pagado_albanil or Decimal("0"))
-                for c in o.cronograma if c.estado == EstadoCuota.pagada
+                (m.monto_albanil for m in o.cronograma if m.tipo == TipoMovimiento.pago), Decimal("0")
             )
 
         if pagos_acum > ejecutado_acum:
